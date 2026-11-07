@@ -11,6 +11,16 @@ struct BookOverridesSections: View {
     /// Shown as the section header; pass the book title in the unified
     /// Settings sheet so the section reads "Emotional Design — overrides global".
     var headerTitle: String? = nil
+    /// Book Settings (a cover-themed sheet) puts the rule above the controls
+    /// it explains and gives rows the translucent sheet card. The Settings
+    /// root keeps the neutral system look with the rule as a footer.
+    var coverThemed: Bool = false
+
+    private var explanation: Text {
+        Text(
+            "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
+        )
+    }
 
     var body: some View {
         Section {
@@ -72,14 +82,24 @@ struct BookOverridesSections: View {
             .padding(.vertical, 4)
 
         } header: {
-            if let headerTitle {
+            if coverThemed {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let headerTitle {
+                        Text(headerTitle)
+                    }
+                    explanation
+                        .font(.footnote)
+                        .textCase(nil)
+                }
+            } else if let headerTitle {
                 Text(headerTitle)
             }
         } footer: {
-            Text(
-                "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
-            )
+            if !coverThemed {
+                explanation
+            }
         }
+        .listRowBackground(coverThemed ? CoverSheetRowBackground() : nil)
     }
 }
 
@@ -116,11 +136,14 @@ struct BookSettingsView: View {
                         // .epub file) so the row is disabled — like the macOS
                         // sibling — rather than enabled-but-always-failing.
                         if let echoDeckBuilderExportURL {
+                            // Same accent as its sibling actions: all three
+                            // rows act at once (open a sheet or share sheet).
                             ShareLink(item: echoDeckBuilderExportURL) {
                                 Label(
                                     "Make Flashcards in EchoDeckBuilder",
                                     systemImage: "square.and.arrow.up"
                                 )
+                                .foregroundStyle(.tint)
                             }
                         } else {
                             Button(
@@ -131,28 +154,37 @@ struct BookSettingsView: View {
                         }
                     #endif
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
-                BookOverridesSections(model: model)
+                BookOverridesSections(model: model, coverThemed: true)
 
                 // Read-along status: whether word-level (sidecar) highlighting is
                 // active, or why it fell back to paragraph-level. Cross-platform
                 // (no iOS-only dependency) so macOS gets parity. Lives here rather
                 // than in the reader chrome to keep the reader UX untouched.
+                // It is status, not a control, so it renders as caption text
+                // with no row card.
                 if model.databaseService?.writer != nil, model.state.folderURL != nil {
-                    Section("Read-Along") {
-                        LabeledContent("Highlighting") {
-                            Text(readAlongStatus ?? "Checking…")
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing)
+                    Section {
+                        EmptyView()
+                    } header: {
+                        Text("Read-Along")
+                    } footer: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label {
+                                Text("Highlighting: \(readAlongStatus ?? String(localized: "Checking…"))")
+                            } icon: {
+                                Image(systemName: "info.circle")
+                            }
+                            // Only present when the state is user-fixable, and it
+                            // names the action that fixes it rather than leaving
+                            // the reason as a dead end.
+                            if let readAlongRecoveryHint {
+                                Text(readAlongRecoveryHint)
+                            }
                         }
-                        // Only present when the state is user-fixable, and it
-                        // names the action that fixes it rather than leaving the
-                        // reason as a dead end.
-                        if let readAlongRecoveryHint {
-                            Text(readAlongRecoveryHint)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     }
                 }
 
@@ -166,6 +198,7 @@ struct BookSettingsView: View {
                             NarrationQASettingsLink(db: db, audiobookID: audiobookID)
                                 .id(audiobookID)
                         }
+                        .listRowBackground(CoverSheetRowBackground())
                     }
                 #endif
             }

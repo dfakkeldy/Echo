@@ -99,7 +99,8 @@ struct SettingsExtractionTests {
 
         #expect(source.contains("Section(\"Now Playing\")"))
         #expect(source.contains("SettingsNowPlayingView()"))
-        #expect(source.contains("Section(\"Appearance\")"))
+        #expect(source.contains("NavigationLink(\"Appearance\")"))
+        #expect(!source.contains("Section(\"Appearance\")"))
         #expect(source.contains("SettingsAppearanceView()"))
         #expect(source.contains("Section(\"Controls\")"))
         #expect(source.contains("PhonePlayerSettingsView()"))
@@ -130,7 +131,7 @@ struct SettingsExtractionTests {
         let source = try Self.source(named: "SettingsView.swift")
         #expect(source.contains("SettingsStudyRows()"))
         #expect(source.contains("$settings.studyGlobalNewChapterLimit"))
-        #expect(source.contains("Global New Chapters"))
+        #expect(source.contains("New chapters per day"))
     }
 
     @Test func settingsShellExposesDailyReviewReminderOptIn() throws {

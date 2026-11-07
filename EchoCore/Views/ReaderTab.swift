@@ -121,7 +121,9 @@ struct ReaderTab: View {
                         .padding(.horizontal, 8)
                         .padding(.top, 8)
                 }
-                if let title = topChapterTitle, !title.isEmpty {
+                if let title = topChapterTitle, !title.isEmpty,
+                    !Self.repeatsHeader(ChapterLabel.name(title), part: topPartTitle, chapter: nil)
+                {
                     let isTop = topPartTitle?.isEmpty ?? true
                     Text(ChapterLabel.name(title))
                         .font(isTop ? .headline : .subheadline)
@@ -131,7 +133,9 @@ struct ReaderTab: View {
                         .padding(.horizontal, 8)
                         .padding(.top, isTop ? 8 : 0)
                 }
-                if let section = topSectionTitle, !section.isEmpty {
+                if let section = topSectionTitle, !section.isEmpty,
+                    !Self.repeatsHeader(section, part: topPartTitle, chapter: topChapterTitle)
+                {
                     Text(section)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -169,6 +173,18 @@ struct ReaderTab: View {
         .background(.ultraThinMaterial)
         .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
         .zIndex(1)
+    }
+
+    /// True when the section line would print the same words as the line
+    /// above it (an EPUB's "Titlepage" chapter whose only heading is also
+    /// "Titlepage"), so the header shows the name once.
+    static func repeatsHeader(_ section: String, part: String?, chapter: String?) -> Bool {
+        let key = section.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [part, chapter.map { ChapterLabel.name($0) }, chapter]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains {
+                $0.compare(key, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
     }
 
     @ViewBuilder
@@ -372,7 +388,8 @@ struct ReaderTab: View {
                 if showCaptureErrorInRoot, pendingMemoSave != nil {
                     Button("Retry") {
                         Task { @MainActor in
-                            await Task.yield(); retryMemoSave()
+                            await Task.yield()
+                            retryMemoSave()
                         }
                     }
                 }
@@ -538,6 +555,15 @@ struct ReaderTab: View {
                 )
             )
         }
+        // One continuous page surface from the header to the screen edge, so
+        // the return pill and the dock float on the same wash as the text.
+        .background {
+            Color(
+                uiColor: UIColor(hex: readerSettings.cardTintHex)?.withAlphaComponent(0.08)
+                    ?? .clear
+            )
+            .ignoresSafeArea()
+        }
     }
 
     private func readerLoadingContent() -> some View {
@@ -579,10 +605,19 @@ struct ReaderTab: View {
     }
 
     private func readerSessionsSheet() -> some View {
-        NavigationStack {
+        // Presented from the reader's book chrome, so it continues the cover's
+        // tonal room like the other book sheets.
+        CoverThemedSheet(theme: model.coverTheme) {
             Group {
                 if let db = model.databaseService {
-                    SessionsListView(audiobookID: audiobookID, dbService: db)
+                    SessionsListView(
+                        audiobookID: audiobookID,
+                        dbService: db,
+                        onStartListening: {
+                            showSessions = false
+                            if !model.isPlaying { model.play() }
+                        }
+                    )
                 } else {
                     // Database init failed and the user chose "Continue Offline".
                     ContentUnavailableView(
@@ -591,6 +626,7 @@ struct ReaderTab: View {
                         description: Text("Sessions need the database, which couldn't be opened."))
                 }
             }
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { showSessions = false }
@@ -1161,7 +1197,9 @@ struct ReaderTab: View {
                 .frame(width: 24)
             Text(message)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                // ~75% of the label colour: .secondary measured ~45% white on
+                // the dark page, too faint for a hint the user must read once.
+                .foregroundStyle(.primary.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
             if dismissible {
@@ -1302,6 +1340,7 @@ struct EPUBTOCSheet: View {
     var tocEntries: [EPubTOCEntryRecord] = []
     let activeBlockID: String?
     let onSelect: (String) -> Void
+    @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     @State private var expandedChapters: Set<String> = []
@@ -1319,7 +1358,9 @@ struct EPUBTOCSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // Presented from the reader's book chrome, so it continues the cover's
+        // tonal room like the other book sheets.
+        CoverThemedSheet(theme: model.coverTheme) {
             List {
                 ForEach(chapters) { chapter in
                     TOCNodeView(
@@ -1335,6 +1376,7 @@ struct EPUBTOCSheet: View {
             }
             .listStyle(.plain)
             .navigationTitle("Table of Contents")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
@@ -1374,8 +1416,30 @@ struct TOCNodeView: View {
     @Binding var expandedNodes: Set<String>
 
     var body: some View {
+        nodeRow
+            // Rows sit straight on the sheet's tonal wash, not on grey cards.
+            .listRowBackground(Color.clear)
+    }
+
+    /// One disclosure rule: a group shows the system chevron (down when open,
+    /// right when closed) and a leaf shows none. Only one row is "current": a
+    /// group whose own start is the active block defers the mark to the child
+    /// that shares it, so a check never sits beside a chevron.
+    private var isCurrent: Bool {
+        guard node.blockID == activeBlockID else { return false }
+        return !Self.containsActive(node.children, activeBlockID: activeBlockID)
+    }
+
+    private static func containsActive(_ nodes: [TOCNode], activeBlockID: String?) -> Bool {
+        nodes.contains {
+            $0.blockID == activeBlockID || containsActive($0.children, activeBlockID: activeBlockID)
+        }
+    }
+
+    @ViewBuilder
+    private var nodeRow: some View {
         if node.children.isEmpty {
-            TOCRow(title: node.title, isActive: node.blockID == activeBlockID) {
+            TOCRow(title: node.title, isActive: isCurrent) {
                 onSelect(node.blockID)
             }
         } else {
@@ -1400,7 +1464,7 @@ struct TOCNodeView: View {
                     )
                 }
             } label: {
-                TOCRow(title: node.title, isActive: node.blockID == activeBlockID) {
+                TOCRow(title: node.title, isActive: isCurrent) {
                     onSelect(node.blockID)
                 }
             }

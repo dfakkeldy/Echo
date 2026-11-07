@@ -10,6 +10,15 @@ struct ProTranscriptsSettingsView: View {
 
     var body: some View {
         Form {
+            // What Pro gives comes first, then one clear action.
+            Section {
+                ForEach(Self.benefits, id: \.symbol) { benefit in
+                    Label(benefit.title, systemImage: benefit.symbol)
+                }
+            } header: {
+                Text("Echo Pro includes")
+            }
+
             Section {
                 LabeledContent("Status") {
                     Text(
@@ -18,31 +27,53 @@ struct ProTranscriptsSettingsView: View {
                     )
                     .foregroundStyle(storeManager.hasUnlockedPro ? .green : .secondary)
                 }
+            }
 
-                if let product = storeManager.proUnlockProduct, !storeManager.hasUnlockedPro {
-                    Button {
-                        Task { await purchasePro() }
-                    } label: {
-                        if isPurchasingPro {
-                            ProgressView()
-                        } else {
-                            Text(String(localized: "Unlock for \(product.displayPrice)"))
+            if !storeManager.hasUnlockedPro {
+                Section {
+                    if let product = storeManager.proUnlockProduct {
+                        Button {
+                            Task { await purchasePro() }
+                        } label: {
+                            Group {
+                                if isPurchasingPro {
+                                    ProgressView()
+                                } else {
+                                    Text(String(localized: "Unlock for \(product.displayPrice)"))
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                    }
-                    .disabled(isPurchasingPro || isRestoringPurchases)
-                } else if !storeManager.hasUnlockedPro {
-                    Button {
-                        Task { await retryProducts() }
-                    } label: {
-                        if isRetryingProducts {
-                            ProgressView()
-                        } else {
-                            Text("Retry Loading Purchase")
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(isPurchasingPro || isRestoringPurchases)
+                    } else {
+                        Button {
+                            Task { await retryProducts() }
+                        } label: {
+                            Group {
+                                if isRetryingProducts {
+                                    ProgressView()
+                                } else {
+                                    Text("Retry Loading Purchase")
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .disabled(isRetryingProducts || isPurchasingPro || isRestoringPurchases)
                     }
-                    .disabled(isRetryingProducts || isPurchasingPro || isRestoringPurchases)
+                } footer: {
+                    Text("One-time purchase. No subscription.")
                 }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
 
+            // Restore is a quiet secondary link, not a second primary action.
+            Section {
                 Button {
                     Task { await restorePurchases() }
                 } label: {
@@ -50,13 +81,13 @@ struct ProTranscriptsSettingsView: View {
                         ProgressView()
                     } else {
                         Text("Restore Purchases")
+                            .font(.footnote)
                     }
                 }
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity)
                 .disabled(isPurchasingPro || isRestoringPurchases)
-            } footer: {
-                Text(
-                    "Echo Pro includes transcript overlays, unlimited flashcards, study export, insights, Watch review, and Audiobookshelf offline sync."
-                )
+                .listRowBackground(Color.clear)
             }
 
             if let notice = storeManager.lastStoreNotice {
@@ -75,13 +106,29 @@ struct ProTranscriptsSettingsView: View {
                 }
             }
         }
-        .navigationTitle("Pro Transcripts")
+        // Matches the "Echo Pro" row that opens this page.
+        .navigationTitle("Echo Pro")
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             if storeManager.proUnlockProduct == nil {
                 await storeManager.requestProducts()
             }
         }
     }
+
+    private struct Benefit {
+        let title: LocalizedStringKey
+        let symbol: String
+    }
+
+    private static let benefits: [Benefit] = [
+        Benefit(title: "Transcript overlays", symbol: "text.bubble"),
+        Benefit(title: "Unlimited flashcards", symbol: "rectangle.stack"),
+        Benefit(title: "Study export", symbol: "square.and.arrow.up"),
+        Benefit(title: "Listening and study insights", symbol: "chart.bar"),
+        Benefit(title: "Apple Watch review", symbol: "applewatch"),
+        Benefit(title: "Audiobookshelf offline sync", symbol: "arrow.triangle.2.circlepath"),
+    ]
 
     private func purchasePro() async {
         isPurchasingPro = true

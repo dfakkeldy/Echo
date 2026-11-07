@@ -19,8 +19,6 @@ struct SettingsNowPlayingView: View {
                     }
                 }
                 .pickerStyle(.menu)
-            } header: {
-                Text("Playback Defaults")
             } footer: {
                 Text(
                     "Used for new books. Existing books keep the last speed you selected for that book."
@@ -68,11 +66,14 @@ struct SettingsNowPlayingView: View {
             #if os(iOS)
                 Section {
                     Toggle("Experimental Player Layout", isOn: $settings.experimentalNowPlayingLayout)
-                    Button("Reset Button Layout", role: .destructive) {
-                        settings.experimentalPlayerLayoutData =
-                            ExperimentalPlayerLayout.defaultLayout.encoded()
+                    // Only meaningful while the layout is on; hidden rather
+                    // than shown as a dead, dimmed row.
+                    if settings.experimentalNowPlayingLayout {
+                        Button("Reset Button Layout", role: .destructive) {
+                            settings.experimentalPlayerLayoutData =
+                                ExperimentalPlayerLayout.defaultLayout.encoded()
+                        }
                     }
-                    .disabled(!settings.experimentalNowPlayingLayout)
                 } header: {
                     Text("Experimental")
                 } footer: {
@@ -82,7 +83,11 @@ struct SettingsNowPlayingView: View {
                 }
             #endif
         }
-        .navigationTitle("Now Playing")
+        // Matches the Settings row that opens this page.
+        .navigationTitle("Playback Defaults")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var defaultSpeedSelection: Binding<Double> {

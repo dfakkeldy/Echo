@@ -43,9 +43,11 @@ struct PlayerScrubberView: View {
                     .padding(.top, 9)
                     .padding(.horizontal, 4)
 
+                    // Secondary, not tertiary: at ~35% white the caption read as
+                    // decoration, but it is the map key for the tick track above.
                     Text(bookProgressCaption)
-                    .customFont(.caption2, appFont: model.resolvedAppFont)
-                    .foregroundStyle(.tertiary)
+                    .customFont(.caption, appFont: model.resolvedAppFont)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 5)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }

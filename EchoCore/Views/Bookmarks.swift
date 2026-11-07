@@ -47,50 +47,45 @@ import os.log
             private let logger = Logger(category: "EditBookmark")
 
             var body: some View {
-                NavigationStack {
+                // Presented from the player dock, so it continues the book's
+                // cover-tonal room instead of flashing to system grey.
+                CoverThemedSheet(theme: model.coverTheme) {
                     Form {
-                        Section("Title") {
+                        // Each field's placeholder already names it, so the
+                        // sections carry no headers that repeat their field.
+                        Section {
                             TextField("Bookmark title", text: $title)
                                 .textInputAutocapitalization(.sentences)
                         }
                         Section("Time") {
                             HStack {
-                                Button {
+                                // The buttons say their step, so the stepper
+                                // never has to be guessed at.
+                                Button("−1s") {
                                     timestamp = max(0, timestamp - 1)
-                                } label: {
-                                    Label("-1s", systemImage: "minus.circle.fill")
-                                        .labelStyle(.iconOnly)
-                                        .font(.title2)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(.isButton)
-
-                                Spacer()
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel(Text("Back 1 second"))
 
                                 Text(NowPlayingController.formatTime(timestamp))
-                                    .font(.system(.title3, design: .monospaced))
+                                    .customFont(.title3, appFont: model.resolvedAppFont)
+                                    .monospacedDigit()
                                     .frame(maxWidth: .infinity)
 
-                                Spacer()
-
-                                Button {
+                                Button("+1s") {
                                     timestamp += 1
-                                } label: {
-                                    Label("+1s", systemImage: "plus.circle.fill")
-                                        .labelStyle(.iconOnly)
-                                        .font(.title2)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(.isButton)
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel(Text("Forward 1 second"))
                             }
                         }
 
-                        Section("Note") {
+                        Section {
                             TextField("Add a note…", text: $note, axis: .vertical)
                                 .lineLimit(3...8)
                         }
 
-                        Section("Picture Bookmark") {
+                        Section {
                             if let name = bookmarkImageFileName {
                                 HStack {
                                     Image(systemName: "photo")
@@ -120,7 +115,7 @@ import os.log
                             #endif
                         }
 
-                        Section("Voice Memo") {
+                        Section {
                             if let name = voiceMemoFileName {
                                 HStack {
                                     Image(systemName: "waveform")
@@ -179,7 +174,11 @@ import os.log
                             }
                         }
                     }
-                    .navigationTitle("Edit Bookmark")
+                    .navigationTitle(
+                        bookmarkID == nil
+                            ? LocalizedStringKey("New Bookmark")
+                            : LocalizedStringKey("Edit Bookmark")
+                    )
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {

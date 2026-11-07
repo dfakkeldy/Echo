@@ -4,16 +4,37 @@ import SwiftUI
 struct StudySessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: StudySessionViewModel
+    /// False when the library holds no flashcards at all, so an empty queue
+    /// reads as "nothing made yet" rather than "you finished".
+    var hasAnyCards: Bool = true
 
     var body: some View {
         NavigationStack {
             VStack {
-                if viewModel.isComplete {
-                    ContentUnavailableView(
-                        "All Done",
-                        systemImage: "checkmark.circle.fill",
-                        description: Text("You've finished today's study queue.")
-                    )
+                if viewModel.isComplete, !hasAnyCards {
+                    ContentUnavailableView {
+                        Label {
+                            Text("No cards yet")
+                        } icon: {
+                            Image(systemName: "rectangle.stack")
+                                .foregroundStyle(.tint)
+                        }
+                    } description: {
+                        Text(
+                            "To make cards, tap the book name in the player, then choose Generate Study Deck."
+                        )
+                    }
+                } else if viewModel.isComplete {
+                    ContentUnavailableView {
+                        Label {
+                            Text("All Done")
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.tint)
+                        }
+                    } description: {
+                        Text("You've finished today's study queue.")
+                    }
                 } else if let entry = viewModel.currentEntry {
                     StudyProgressHeader(progress: viewModel.progress)
                     Spacer(minLength: 16)
@@ -27,7 +48,7 @@ struct StudySessionView: View {
                 .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }

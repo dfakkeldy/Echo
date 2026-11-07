@@ -18,25 +18,18 @@ struct SettingsAppearanceView: View {
                     Text("Dark").tag("Dark")
                     Text("Cover").tag("Cover")
                 }
-            } footer: {
-                Text(
-                    "Cover follows the book you're listening to: light for pale covers, dark for deep ones. Books with no preference follow the system."
-                )
-            }
-            #if os(iOS)
-                Section("App Icon") {
+                // The App Icon row joins this group: a one-row section headed
+                // "App Icon" just repeated its row.
+                #if os(iOS)
                     NavigationLink {
                         AppIconSelectionView()
                     } label: {
-                        HStack {
-                            Text("App Icon")
-                            Spacer()
-                            Text(currentAppIconName)
-                                .foregroundStyle(.secondary)
-                        }
+                        LabeledContent("App Icon", value: currentAppIconName)
                     }
-                }
-            #endif
+                #endif
+            } footer: {
+                Text(colorSchemeFooter)
+            }
             Section {
                 NavigationLink {
                     ThemeSelectionView()
@@ -67,37 +60,28 @@ struct SettingsAppearanceView: View {
                 Text("Theme")
             } footer: {
                 Text(
-                    "Prefers the cover's most saturated color for the accent — like colored title text — even when it covers only a small area. Off blends each color family evenly."
+                    "Vivid Cover Accent picks the cover's brightest color, even a small one. Off blends the cover's colors."
                 )
             }
-            Section("Typography") {
+            // Text settings in one group; no "Typography" header over two
+            // rows that already say Font and Reader Defaults.
+            Section {
                 NavigationLink {
                     FontSelectionView()
                 } label: {
-                    HStack {
-                        Text("Font")
-                        Spacer()
-                        Text(
-                            settings.appFont == SettingsManager.systemFontName
-                                ? "System" : settings.appFont
-                        )
-                        .foregroundStyle(.secondary)
-                    }
+                    LabeledContent(
+                        "Font",
+                        value: settings.appFont == SettingsManager.systemFontName
+                            ? String(localized: "System") : settings.appFont
+                    )
                 }
                 NavigationLink {
                     ReaderDefaultsSettingsView()
                 } label: {
-                    HStack {
-                        Text("Reader Defaults")
-                        Spacer()
-                        Text("\(Int(settings.readerFontSize)) pt")
-                            .foregroundStyle(.secondary)
-                    }
+                    LabeledContent("Reader Defaults", value: "\(Int(settings.readerFontSize)) pt")
                 }
-            }
-            Section {
                 Toggle(
-                    "Truncate Chapter to Ch.",
+                    "Short chapter names",
                     isOn: Binding(
                         get: { settings.truncateChapterNamesEnabled },
                         set: {
@@ -105,15 +89,28 @@ struct SettingsAppearanceView: View {
                             model.syncToWatch()
                         }
                     ))
-            } header: {
-                Text("Display Options")
             } footer: {
                 Text(
-                    "Shortens \u{201C}Chapter 12\u{201D} to \u{201C}Ch. 12\u{201D} in tight spaces, like the watch and mini-player."
+                    "Short chapter names shows \u{201C}Ch. 12\u{201D} instead of \u{201C}Chapter 12\u{201D} on the watch and mini-player."
                 )
             }
         }
         .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Describes the option that is selected, not only the Cover option.
+    private var colorSchemeFooter: String {
+        switch settings.appAppearance {
+        case "Light": String(localized: "Echo always uses light mode.")
+        case "Dark": String(localized: "Echo always uses dark mode.")
+        case "Cover":
+            String(
+                localized:
+                    "Follows the book you're listening to: light for pale covers, dark for deep ones. Books with no preference follow the system."
+            )
+        default: String(localized: "Echo follows your device's light or dark setting.")
+        }
     }
 
     private func summarySwatchColor(for theme: ThemeColor) -> Color? {

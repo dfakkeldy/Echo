@@ -22,6 +22,7 @@ struct NarrationNudgeView: View {
                     Text(message)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -37,11 +38,9 @@ struct NarrationNudgeView: View {
             .clipShape(.rect(cornerRadius: 12))
         }
         .padding()
-        #if os(macOS)
-            .background(Color(nsColor: .windowBackgroundColor))
-        #else
-            .background(Color(.secondarySystemBackground))
-        #endif
+        // A tint of the surface it sits on (the player's cover wash on iPhone),
+        // not an opaque grey card laid over a coloured room.
+        .background(Color.primary.opacity(0.08))
         .clipShape(.rect(cornerRadius: 16))
     }
 }

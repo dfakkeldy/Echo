@@ -45,7 +45,7 @@ struct StatsView: View {
         .task { await loadAll() }
         .onChange(of: selectedBucket) { _, _ in Task { await loadBucketed() } }
         .sheet(item: $studySessionViewModel) { vm in
-            StudySessionView(viewModel: vm)
+            StudySessionView(viewModel: vm, hasAnyCards: (srsStats?.totalCards ?? 0) > 0)
         }
         .alert(
             "Could Not Start Study",
@@ -79,15 +79,15 @@ struct StatsView: View {
             Section("Overview") {
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                     StatCardView(title: "Total", value: fmt(o.totalListeningDuration),
-                                 systemImage: "clock", tint: .green)
+                                 systemImage: "clock")
                     StatCardView(title: "Today", value: fmt(o.todayDuration),
-                                 systemImage: "sun.max", tint: .blue)
+                                 systemImage: "sun.max")
                     StatCardView(title: "Streak", value: "\(o.streak.currentStreakDays)d",
                                  subtitle: "best \(o.streak.longestStreakDays)d",
-                                 systemImage: "flame", tint: .orange)
+                                 systemImage: "flame")
                     StatCardView(title: "Daily Avg", value: fmt(o.dailyAverage),
                                  subtitle: "\(o.activeDays) active days",
-                                 systemImage: "calendar", tint: .purple)
+                                 systemImage: "calendar")
                 }
             }
         } else {
@@ -104,7 +104,7 @@ struct StatsView: View {
                     x: .value("Date", bucket.startDate, unit: selectedBucket.calendarComponent),
                     y: .value("Minutes", bucket.totalAdjustedDuration / 60)
                 )
-                .foregroundStyle(.blue.opacity(0.6))
+                .foregroundStyle(.tint.opacity(0.7))
             }
             .frame(height: 200)
             .chartYAxisLabel("minutes")
@@ -148,27 +148,39 @@ struct StatsView: View {
             Section("Study (SRS)") {
                 StudyLibraryLinksView(onReviewTap: launchStudySession)
 
+                // One accent for every tile; red only for a real overdue count.
+                // Metrics that need reviews show "—" until reviews exist, so a
+                // fresh library never shows a fake 0% retention or the 2.5
+                // default ease as if it were measured.
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                     StatCardView(title: "Due", value: "\(s.dueCount)",
-                                 systemImage: "bell", tint: .red)
+                                 systemImage: "bell",
+                                 tint: s.dueCount > 0 ? .red : nil)
                     StatCardView(title: "Cards", value: "\(s.totalCards)",
-                                 systemImage: "rectangle.stack", tint: .indigo)
-                    StatCardView(title: "Retention", value: percentage(s.retentionRate),
-                                 systemImage: "brain", tint: .teal)
-                    StatCardView(title: "Avg Ease", value: oneDecimal(s.averageEase),
-                                 systemImage: "gauge", tint: .mint)
+                                 systemImage: "rectangle.stack")
+                    StatCardView(title: "Retention",
+                                 value: s.totalReviews == 0 ? "—" : percentage(s.retentionRate),
+                                 systemImage: "brain")
+                    StatCardView(title: "Avg Ease",
+                                 value: s.totalCards == 0 ? "—" : oneDecimal(s.averageEase),
+                                 systemImage: "gauge")
                 }
 
-                if !dueForecast.isEmpty {
+                if dueForecast.contains(where: { $0.dueCount > 0 }) {
                     Chart(dueForecast) { point in
                         LineMark(
                             x: .value("Date", point.date, unit: .day),
                             y: .value("Due", point.dueCount)
                         )
-                        .foregroundStyle(.red.opacity(0.6))
+                        .foregroundStyle(.tint)
                     }
                     .frame(height: 150)
                     .chartYAxisLabel("cards due")
+                } else {
+                    Text("No cards scheduled for the next 30 days.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 if !dailyReviews.isEmpty {
@@ -196,11 +208,11 @@ struct StatsView: View {
                     title: "Completed",
                     value: "\(plannerAdherence?.completedSessions ?? 0)/\(plannerAdherence?.totalPlannedSessions ?? 0)",
                     subtitle: percentage(plannerAdherence?.completionRate ?? 0),
-                    systemImage: "checklist", tint: .green)
+                    systemImage: "checklist")
                 StatCardView(
                     title: "In Session",
                     value: fmt(plannerAdherence?.actualListenedDuringPlanned ?? 0),
-                    systemImage: "headphones", tint: .purple)
+                    systemImage: "headphones")
             }
         }
     }
@@ -365,12 +377,12 @@ private struct SpeedTrendChartView: View {
                     x: .value("Date", point.date, unit: .day),
                     y: .value("Speed", point.averageSpeed)
                 )
-                .foregroundStyle(.cyan)
+                .foregroundStyle(.tint)
                 PointMark(
                     x: .value("Date", point.date, unit: .day),
                     y: .value("Speed", point.averageSpeed)
                 )
-                .foregroundStyle(.cyan)
+                .foregroundStyle(.tint)
             }
             .frame(height: 150)
             .chartYAxisLabel("speed")
@@ -390,7 +402,7 @@ private struct TimeOfDayHistogramChartView: View {
                     x: .value("Hour", hourLabel(bucket.id)),
                     y: .value("Minutes", bucket.totalAdjustedDuration / 60)
                 )
-                .foregroundStyle(.blue.opacity(0.7))
+                .foregroundStyle(.tint.opacity(0.7))
             }
             .frame(height: 150)
             .chartXAxisLabel("hour")
@@ -406,21 +418,63 @@ private struct TimeOfDayHistogramChartView: View {
 private struct StudyLibraryLinksView: View {
     let onReviewTap: () -> Void
 
+    /// A grouped list card: each row reads as a destination (leading icon,
+    /// label, trailing chevron) rather than a floating centred link.
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             Button("Review Queue", systemImage: "rectangle.stack.fill", action: onReviewTap)
+                .buttonStyle(StudyLinkRowStyle())
+
+            Divider().padding(.leading, 52)
 
             NavigationLink {
                 CardInboxView()
             } label: {
                 Label("Card Inbox", systemImage: "tray")
             }
+            .buttonStyle(StudyLinkRowStyle())
+
+            Divider().padding(.leading, 52)
 
             NavigationLink {
                 DeckListView()
             } label: {
                 Label("Decks", systemImage: "rectangle.stack")
             }
+            .buttonStyle(StudyLinkRowStyle())
+        }
+        .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+}
+
+/// Row style for the study links: accent icon, primary label, trailing
+/// chevron, full-width hit area, and a pressed highlight.
+private struct StudyLinkRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.label
+                .labelStyle(StudyLinkLabelStyle())
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 48)
+        .contentShape(.rect)
+        .background(configuration.isPressed ? Color.primary.opacity(0.08) : .clear)
+    }
+}
+
+private struct StudyLinkLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon
+                .foregroundStyle(.tint)
+                .frame(width: 24)
+            configuration.title
+                .foregroundStyle(.primary)
         }
     }
 }
@@ -437,7 +491,7 @@ private struct DailyReviewChartView: View {
                     x: .value("Date", point.date, unit: .day),
                     y: .value("Reviews", point.count)
                 )
-                .foregroundStyle(.indigo.opacity(0.7))
+                .foregroundStyle(.tint.opacity(0.7))
             }
             .frame(height: 150)
             .chartYAxisLabel("reviews")
@@ -457,12 +511,12 @@ private struct RetentionCurveChartView: View {
                     x: .value("Interval", point.intervalDays),
                     y: .value("Retention", point.retentionRate * 100)
                 )
-                .foregroundStyle(.teal)
+                .foregroundStyle(.tint)
                 PointMark(
                     x: .value("Interval", point.intervalDays),
                     y: .value("Retention", point.retentionRate * 100)
                 )
-                .foregroundStyle(.teal)
+                .foregroundStyle(.tint)
             }
             .frame(height: 150)
             .chartXAxisLabel("days")
@@ -484,7 +538,7 @@ private struct GradeDistributionChartView: View {
                     x: .value("Grade", item.grade),
                     y: .value("Cards", item.count)
                 )
-                .foregroundStyle(.mint.opacity(0.7))
+                .foregroundStyle(.tint.opacity(0.7))
             }
             .frame(height: 150)
             .chartXAxisLabel("grade")

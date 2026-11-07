@@ -73,6 +73,7 @@ struct ABSConnectionsSettingsView: View {
             }
         }
         .navigationTitle("Connections")
+        .navigationBarTitleDisplayMode(.inline)
         .task { connected = (try? model.absServerDAO?.current()) ?? nil }
         .sheet(item: $browseDestination, onDismiss: cancelBrowse) { destination in
             ABSBrowseView(browseModel: destination.model) { book in
@@ -239,26 +240,57 @@ private struct ABSAddServerSection: View {
     let isConnecting: Bool
     let connect: () async -> Void
 
+    private var canConnect: Bool {
+        !isConnecting && !baseURL.isEmpty && !username.isEmpty
+    }
+
     var body: some View {
+        // Label + field rows, so each field still says what it is after the
+        // user starts typing.
         Section {
-            TextField("Server URL (https://host:13378)", text: $baseURL)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .autocorrectionDisabled()
-            TextField("Username", text: $username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            SecureField("Password", text: $password)
+            LabeledContent("Server") {
+                TextField("https://host:13378", text: $baseURL)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("Username") {
+                TextField("Username", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("Password") {
+                SecureField("Password", text: $password)
+                    .multilineTextAlignment(.trailing)
+            }
+        } header: {
+            Text("Add Audiobookshelf Server")
+        } footer: {
+            Text(
+                "Stream and sync books from your own Audiobookshelf server. Bare hosts use HTTPS. Type http:// only for a local server you trust."
+            )
+        }
+
+        // The commit action is a real button outside the field group, so it
+        // can't be mistaken for a fourth placeholder field.
+        Section {
             Button {
                 Task { await connect() }
             } label: {
                 ABSConnectButtonLabel(isConnecting: isConnecting)
+                    .frame(maxWidth: .infinity)
             }
-            .disabled(isConnecting || baseURL.isEmpty || username.isEmpty)
-        } header: {
-            Text("Add Audiobookshelf Server")
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!canConnect)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
         } footer: {
-            Text("Bare hosts use HTTPS. Type http:// only for a local server you trust.")
+            if !isConnecting && (baseURL.isEmpty || username.isEmpty) {
+                Text("Enter a server and username to connect.")
+            }
         }
     }
 }

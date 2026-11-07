@@ -8,6 +8,7 @@ struct SettingsAdvancedView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(PlayerModel.self) private var model
     @State private var contextMemoryStatus: String?
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -38,12 +39,25 @@ struct SettingsAdvancedView: View {
                         set: { isEnabled in setLocationCaptureEnabled(isEnabled) }
                     ))
 
-                Button(role: .destructive, action: deleteContextMemory) {
+                // Icon and text share one destructive red; the delete is
+                // confirmed first because it cannot be undone.
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
                     Label("Delete Context Memory", systemImage: "trash")
+                        .foregroundStyle(.red)
                 }
                 .disabled(model.databaseService == nil)
-            } header: {
-                Text("Context Memory")
+                .confirmationDialog(
+                    "Delete Context Memory?",
+                    isPresented: $showingDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive, action: deleteContextMemory)
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Removes saved bookmark places and session location history from this device. This cannot be undone.")
+                }
             } footer: {
                 Text(
                     contextMemoryStatus
@@ -62,6 +76,7 @@ struct SettingsAdvancedView: View {
             }
         }
         .navigationTitle("Advanced")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func deleteContextMemory() {

@@ -50,7 +50,9 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Appearance") {
+                // No header: a one-row group named after its only row
+                // just says the same word twice.
+                Section {
                     NavigationLink("Appearance") {
                         SettingsAppearanceView()
                     }
@@ -78,6 +80,7 @@ struct SettingsView: View {
                     NavigationLink("AI Card Generation") {
                         AICardGenerationSettingsView()
                             .navigationTitle("AI Card Generation")
+                            .navigationBarTitleDisplayMode(.inline)
                     }
 
                     Button {
@@ -108,39 +111,44 @@ struct SettingsView: View {
                 }
 
                 // Audit E4: the "for testing" lookback slider is debug tooling
-                // and must not ship in release builds.
+                // and must not ship in release builds. Screenshot runs hide it
+                // too, so design-review captures show what users see.
                 #if DEBUG
-                    SettingsSilenceDetectionSection()
+                    if !MockMediaProvider.isScreenshotRun {
+                        SettingsSilenceDetectionSection()
+                    }
                 #endif
 
                 #if DEBUG
-                    Section {
-                        Button("Load Development Assets") {
-                            model.loadFolder(Bundle.main.bundleURL)
-                            dismiss()
+                    if !MockMediaProvider.isScreenshotRun {
+                        Section {
+                            Button("Load Development Assets") {
+                                model.loadFolder(Bundle.main.bundleURL)
+                                dismiss()
+                            }
+                            Button("🔊 Narrate Ch. 1 (Kokoro test)") {
+                                runNarrationTest()
+                            }
+                            // Alignment QA aid: per-block timestamps in the reader
+                            // (red = locked anchor, grey = interpolated). Off by
+                            // default so the overlay never collides with body text
+                            // during normal reading; ReaderFeedCollectionView reads
+                            // the same key.
+                            Toggle(
+                                "Show Alignment Timestamps",
+                                isOn: $showAlignmentTimestamps
+                            )
+                            .onChange(of: showAlignmentTimestamps) { _, newValue in
+                                UserDefaults.standard.set(
+                                    newValue, forKey: "reader.showAlignmentTimestamps")
+                            }
+                        } header: {
+                            Text("Debug Menu")
+                        } footer: {
+                            Text(
+                                "Loads audio files from Development Assets into the player and renders chapter 1 through the on-device ONNX narration engine."
+                            )
                         }
-                        Button("🔊 Narrate Ch. 1 (Kokoro test)") {
-                            runNarrationTest()
-                        }
-                        // Alignment QA aid: per-block timestamps in the reader
-                        // (red = locked anchor, grey = interpolated). Off by
-                        // default so the overlay never collides with body text
-                        // during normal reading; ReaderFeedCollectionView reads
-                        // the same key.
-                        Toggle(
-                            "Show Alignment Timestamps",
-                            isOn: $showAlignmentTimestamps
-                        )
-                        .onChange(of: showAlignmentTimestamps) { _, newValue in
-                            UserDefaults.standard.set(
-                                newValue, forKey: "reader.showAlignmentTimestamps")
-                        }
-                    } header: {
-                        Text("Debug Menu")
-                    } footer: {
-                        Text(
-                            "Loads audio files from Development Assets into the player and renders chapter 1 through the on-device ONNX narration engine."
-                        )
                     }
                 #endif
 
@@ -287,18 +295,35 @@ private struct SettingsStudyRows: View {
                 .foregroundStyle(.secondary)
         }
 
-        Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
-            LabeledContent("Global New Chapters") {
-                Text(chapterLimitText)
+        // Short label, value trailing, one line each (Global New Chapters
+        // used to wrap). The footnote below names the limit, so a disabled
+        // "+" at the top of the range is not a silent dead end.
+        Stepper(value: $settings.studyGlobalNewChapterLimit, in: Self.chapterLimitRange) {
+            LabeledContent("New chapters per day") {
+                Text("\(settings.studyGlobalNewChapterLimit)")
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            .lineLimit(1)
+        }
+        if settings.studyGlobalNewChapterLimit >= Self.chapterLimitRange.upperBound {
+            Text("12 new chapters a day is the most Echo schedules.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
 
-        Stepper(value: $settings.studyNewCardsPerDayLimit, in: 1...100) {
-            LabeledContent("New AI Card Offer Cap") {
-                Text(cardLimitText)
+        Stepper(value: $settings.studyNewCardsPerDayLimit, in: Self.cardLimitRange) {
+            LabeledContent("New AI cards per build") {
+                Text("\(settings.studyNewCardsPerDayLimit)")
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            .lineLimit(1)
+        }
+        if settings.studyNewCardsPerDayLimit >= Self.cardLimitRange.upperBound {
+            Text("100 new cards per build is the most Echo offers.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
 
         NavigationLink("Chapter Checkpoints") {
@@ -306,17 +331,8 @@ private struct SettingsStudyRows: View {
         }
     }
 
-    private var chapterLimitText: String {
-        let limit = settings.studyGlobalNewChapterLimit
-        let unit = limit == 1 ? "chapter" : "chapters"
-        return "\(limit) \(unit) per day"
-    }
-
-    private var cardLimitText: String {
-        let limit = settings.studyNewCardsPerDayLimit
-        let unit = limit == 1 ? "card" : "cards"
-        return "\(limit) \(unit) per build"
-    }
+    private static let chapterLimitRange = 1...12
+    private static let cardLimitRange = 1...100
 
     private func setReviewNotificationsEnabled(_ isEnabled: Bool) {
         guard isEnabled else {
@@ -370,15 +386,21 @@ private struct CheckpointSettingsView: View {
         @Bindable var settings = settings
 
         Form {
+            // No header: the page title already says "Chapter Checkpoints".
+            // The explanation comes first, then each control with its own
+            // one-line footer.
             Section {
+                // Menu style keeps the value trailing on the label's line,
+                // like "Checkpoint timeout" below.
                 Picker("When the timer runs out", selection: $settings.checkpointTimeoutBehavior) {
-                    Text("Replay the chapter")
+                    Text("Replay chapter")
                         .tag(CheckpointTimeoutBehavior.replay.rawValue)
-                    Text("Grade Again and move on")
+                    Text("Move on")
                         .tag(CheckpointTimeoutBehavior.gradeAndAdvance.rawValue)
-                    Text("Wait - no grade, re-queue today")
+                    Text("Wait")
                         .tag(CheckpointTimeoutBehavior.wait.rawValue)
                 }
+                .pickerStyle(.menu)
 
                 if settings.checkpointTimeoutBehavior != CheckpointTimeoutBehavior.wait.rawValue {
                     Picker("Checkpoint timeout", selection: $settings.checkpointTimeoutSeconds) {
@@ -387,20 +409,44 @@ private struct CheckpointSettingsView: View {
                         Text("1 minute").tag(60)
                         Text("2 minutes").tag(120)
                     }
+                    .pickerStyle(.menu)
                 }
-
-                Toggle("Auto-advance after Good", isOn: $settings.checkpointAutoAdvance)
-                Toggle("Lock-screen button grading", isOn: $settings.checkpointRemoteGrading)
             } header: {
-                Text("Chapter Checkpoints")
-            } footer: {
                 Text(
-                    "When a due study chapter finishes playing, Echo pauses and asks for a retention grade. While the window is open, lock-screen skip-forward means Good and skip-back means Again. Checkpoints only exist for books with an active study plan; pause the plan to silence them."
+                    "When a due study chapter ends, Echo pauses and asks how well you remember it. Only books with an active study plan have checkpoints."
                 )
+                .textCase(nil)
+            } footer: {
+                Text(timeoutFooter)
+            }
+
+            Section {
+                Toggle("Auto-advance after Good", isOn: $settings.checkpointAutoAdvance)
+            } footer: {
+                Text("Moves to the next chapter when you grade Good.")
+            }
+
+            Section {
+                Toggle("Lock-screen button grading", isOn: $settings.checkpointRemoteGrading)
+            } footer: {
+                Text("Skip forward means Good. Skip back means Again.")
             }
         }
         .navigationTitle("Chapter Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var timeoutFooter: String {
+        switch CheckpointTimeoutBehavior(rawValue: settings.checkpointTimeoutBehavior) {
+        case .replay?:
+            String(localized: "No answer in time grades Again and replays the chapter.")
+        case .gradeAndAdvance?:
+            String(localized: "No answer in time grades Again and moves on.")
+        case .wait?:
+            String(localized: "Echo waits with no grade and asks again later today.")
+        default:
+            String(localized: "To silence checkpoints, pause the book's study plan.")
+        }
     }
 }
 
@@ -440,6 +486,7 @@ private struct SettingsSupportAboutSection: View {
             NavigationLink("Feedback & Support") {
                 FeedbackSupportView()
                     .navigationTitle("Feedback & Support")
+                    .navigationBarTitleDisplayMode(.inline)
             }
             NavigationLink {
                 HelpView()

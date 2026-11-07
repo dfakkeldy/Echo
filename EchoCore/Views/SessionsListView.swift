@@ -10,6 +10,9 @@ struct SessionsListView: View {
     // SwiftUI environment (it lives on PlayerModel.databaseService and can be
     // nil/replaced after a failed launch), so an `@Environment` read traps.
     let dbService: DatabaseService
+    /// Starts playback and closes the sheet. When set, the empty state offers
+    /// it as the one next step instead of ending on an explanation.
+    var onStartListening: (() -> Void)? = nil
 
     @State private var sessions: [SessionSummary] = []
     @State private var isLoading = true
@@ -26,11 +29,18 @@ struct SessionsListView: View {
                     systemImage: "exclamationmark.triangle",
                     description: Text(loadError))
             } else if sessions.isEmpty {
-                ContentUnavailableView(
-                    "No sessions yet",
-                    systemImage: "clock",
-                    description: Text(
-                        "Play this book and your listening sessions will appear here."))
+                ContentUnavailableView {
+                    Label("No sessions yet", systemImage: "clock")
+                } description: {
+                    Text("Play this book and your listening sessions will appear here.")
+                } actions: {
+                    if let onStartListening {
+                        Button(
+                            "Start listening", systemImage: "play.fill", action: onStartListening
+                        )
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
             } else {
                 List(sessions) { session in
                     NavigationLink {

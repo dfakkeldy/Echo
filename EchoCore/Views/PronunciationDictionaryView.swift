@@ -30,8 +30,11 @@ struct PronunciationDictionaryView: View {
 
     var body: some View {
         Form {
-            if !sortedEntries.isEmpty {
-                Section {
+            Section {
+                if sortedEntries.isEmpty {
+                    Text("No custom pronunciations yet.")
+                        .foregroundStyle(.secondary)
+                } else {
                     ForEach(sortedEntries, id: \.word) { entry in
                         HStack {
                             Text(entry.word)
@@ -43,13 +46,13 @@ struct PronunciationDictionaryView: View {
                         }
                     }
                     .onDelete(perform: deleteEntries)
-                } header: {
-                    Text("Saved pronunciations")
-                } footer: {
-                    Text(
-                        "Words here are pronounced from the IPA you provide, overriding the built-in dictionary. Tip: for books full of invented names, add the main characters here."
-                    )
                 }
+            } header: {
+                Text("Saved pronunciations")
+            } footer: {
+                Text(
+                    "Words here are pronounced from the IPA you provide, overriding the built-in dictionary. Tip: for books full of invented names, add the main characters here."
+                )
             }
 
             Section {
@@ -59,7 +62,7 @@ struct PronunciationDictionaryView: View {
                 TextField("IPA", text: $newIPA)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button("Add pronunciation", systemImage: "plus.circle.fill", action: addEntry)
+                Button("Add pronunciation", systemImage: "plus.circle", action: addEntry)
                     .disabled(trimmedWord.isEmpty || trimmedIPA.isEmpty)
             } header: {
                 Text("Add a pronunciation")
@@ -70,6 +73,7 @@ struct PronunciationDictionaryView: View {
             }
         }
         .navigationTitle("Pronunciation")
+        .navigationBarTitleDisplayMode(.inline)
         .alert(
             "Can't save that pronunciation",
             isPresented: Binding(

@@ -26,13 +26,21 @@
                     }
                 }
 
-                Picker("Visual timing", selection: $syncPoint) {
-                    Text("Begin").tag(VisualListeningSyncPoint.begin)
-                    Text("Middle").tag(VisualListeningSyncPoint.midpoint)
+                HStack(spacing: 12) {
+                    // Visible label: a bare "Begin / Middle" segment gave no clue
+                    // that it sets when each figure appears against the audio.
+                    Text("Show figures at")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                    Picker("Visual timing", selection: $syncPoint) {
+                        Text("Begin").tag(VisualListeningSyncPoint.begin)
+                        Text("Middle").tag(VisualListeningSyncPoint.midpoint)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accessibilityLabel(Text("Show figures at"))
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel(Text("Visual timing"))
             }
             .task(id: snapshot.visualCue?.id) {
                 await loadImageIfNeeded()

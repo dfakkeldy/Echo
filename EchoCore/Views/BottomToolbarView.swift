@@ -161,16 +161,19 @@ struct BottomToolbarView: View {
 
     private var speedMenu: some View {
         Menu {
+            // Plain numerals; a menu Toggle gives the system checkmark, so the
+            // current speed is the only row that looks different.
             ForEach(SettingsManager.Defaults.speedPresets, id: \.self) { preset in
-                Button {
-                    model.setSpeed(preset)
-                    Haptic.play(.medium)
-                } label: {
-                    Label(
-                        speedLabel(preset),
-                        systemImage: model.speed == preset ? "checkmark" : "speedometer"
+                Toggle(
+                    speedLabel(preset),
+                    isOn: Binding(
+                        get: { model.speed == preset },
+                        set: { _ in
+                            model.setSpeed(preset)
+                            Haptic.play(.medium)
+                        }
                     )
-                }
+                )
             }
 
             Divider()
@@ -184,6 +187,9 @@ struct BottomToolbarView: View {
         } label: {
             utilityTextChip(isActive: model.speed != 1.0, speedLabel)
         }
+        // Speeds first, "Playback Options" last behind the divider, in the
+        // order written even though the menu opens upward from the dock.
+        .menuOrder(.fixed)
         .accessibilityLabel(Text("Playback speed"))
         .accessibilityValue(Text(speedLabel))
         .accessibilityHint(Text("Choose playback speed or open playback options"))
@@ -220,29 +226,48 @@ struct BottomToolbarView: View {
             Button {
                 createBookmarkDraft()
             } label: {
-                Label("Add bookmark", systemImage: "bookmark.fill")
+                Label("Add bookmark", systemImage: "bookmark")
             }
             .disabled(model.tracks.isEmpty)
 
-            Button {
-                onAddReaderNote?()
-                Haptic.play(.light)
-            } label: {
-                Label("Add note", systemImage: "note.text.badge.plus")
-            }
-            .disabled(!canCreateReaderCapture || onAddReaderNote == nil)
-
-            Button {
-                onToggleReaderMemo?()
-                Haptic.play(isReaderVoiceMemoRecording ? .light : .medium)
-            } label: {
-                if isReaderVoiceMemoRecording {
-                    Label("Stop memo", systemImage: "stop.circle.fill")
-                } else {
-                    Label("Record memo", systemImage: "mic.circle")
+            // Notes and memos attach to a passage of the book's text. A book
+            // with no text can never take one, so the rows are hidden; when the
+            // text exists but no passage is chosen, each row says what it needs.
+            if bookHasText {
+                Button {
+                    onAddReaderNote?()
+                    Haptic.play(.light)
+                } label: {
+                    Label {
+                        Text("Add note")
+                        if let reason = textCaptureUnavailableReason {
+                            Text(reason)
+                        }
+                    } icon: {
+                        Image(systemName: "note.text.badge.plus")
+                    }
                 }
+                .disabled(!canCreateReaderCapture || onAddReaderNote == nil)
+
+                Button {
+                    onToggleReaderMemo?()
+                    Haptic.play(isReaderVoiceMemoRecording ? .light : .medium)
+                } label: {
+                    if isReaderVoiceMemoRecording {
+                        Label("Stop memo", systemImage: "stop.circle")
+                    } else {
+                        Label {
+                            Text("Record memo")
+                            if let reason = textCaptureUnavailableReason {
+                                Text(reason)
+                            }
+                        } icon: {
+                            Image(systemName: "mic")
+                        }
+                    }
+                }
+                .disabled(!canCreateReaderCapture || onToggleReaderMemo == nil)
             }
-            .disabled(!canCreateReaderCapture || onToggleReaderMemo == nil)
         } label: {
             utilityChip(isActive: isReaderVoiceMemoRecording) {
                 Image(systemName: isReaderVoiceMemoRecording ? "mic.circle.fill" : "bookmark.fill")
@@ -251,6 +276,22 @@ struct BottomToolbarView: View {
         }
         .accessibilityLabel(Text("Bookmark, note, or memo"))
         .disabled(model.tracks.isEmpty && !canCreateReaderCapture)
+    }
+
+    private var bookHasText: Bool {
+        model.hasEPUB || model.hasPDF
+    }
+
+    /// The menu subtitle under a disabled note/memo row, so a dimmed row never
+    /// fails silently. `nil` when the row works.
+    private var textCaptureUnavailableReason: LocalizedStringKey? {
+        if onAddReaderNote == nil || onToggleReaderMemo == nil {
+            return "Open Read to add one"
+        }
+        if !canCreateReaderCapture {
+            return "Tap a passage first"
+        }
+        return nil
     }
 
     private func createBookmarkDraft() {

@@ -58,6 +58,7 @@ import UIKit
         for path in [
             "EchoCore/Views/BookSettingsView.swift",
             "EchoCore/Views/ChapterPickerSheet.swift",
+            "EchoCore/Views/Bookmarks.swift",
         ] {
             let source = try Self.source(path)
             #expect(
@@ -66,6 +67,20 @@ import UIKit
             #expect(
                 !source.contains("NavigationStack {"),
                 "\(path) must not own a bare stack — it would paint over the wash")
+        }
+    }
+
+    @Test func readerSheetsGoThroughTheScaffold() throws {
+        let settings = try Self.source("EchoCore/Views/ReaderSettingsSheet.swift")
+        #expect(settings.contains("CoverThemedSheet(theme: model.coverTheme) { form }"))
+
+        let reader = try Self.source("EchoCore/Views/ReaderTab.swift")
+        for anchor in ["private func readerSessionsSheet()", "struct EPUBTOCSheet: View {"] {
+            let start = try #require(reader.range(of: anchor))
+            let body = reader[start.upperBound...].prefix(1500)
+            #expect(
+                body.contains("CoverThemedSheet(theme: model.coverTheme)"),
+                "\(anchor) should take its wash from the scaffold")
         }
     }
 
