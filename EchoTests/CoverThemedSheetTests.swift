@@ -59,6 +59,7 @@ import UIKit
             "EchoCore/Views/BookSettingsView.swift",
             "EchoCore/Views/ChapterPickerSheet.swift",
             "EchoCore/Views/Bookmarks.swift",
+            "EchoCore/Views/PlaybackOptionsSheet.swift",
         ] {
             let source = try Self.source(path)
             #expect(

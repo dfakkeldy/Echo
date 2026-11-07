@@ -19,7 +19,9 @@ struct PlaybackOptionsSheet: View {
     var body: some View {
         @Bindable var settings = settings
 
-        NavigationStack {
+        // Reached from the player's speed chip, so it continues the book's
+        // cover-tonal room like the other player sheets.
+        CoverThemedSheet(theme: model.coverTheme) {
             Form {
                 Section("Speed") {
                     Picker("Playback Speed", selection: speedSelection) {
