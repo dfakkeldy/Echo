@@ -93,6 +93,8 @@ metadata. The chapter that holds the edit is encoded again from start to end.
   another render owns the renderer. It predicts first attempts only: a chunk
   that fails the quality check is split and retried at render time.
 - Delete the cache directory to force a full re-synthesis.
+- If the duration head fails to load during a render, chunks are stored
+  without word timings. Delete the cache if a later render should restore them.
 
 ## Size
 
@@ -103,5 +105,8 @@ chunks only, and every new renderer build starts a fresh set of keys.
 Add `--prune-synthesis-cache` to a render that covers the whole book in one
 process (no `--max-chapters` split). After the book completes, it deletes every
 entry that render did not use, so the cache holds exactly the latest render.
-It deletes only files named like cache entries. Remove a book's cache when its
-final render is accepted.
+It deletes only files named like cache entries, and only when the directory
+belongs to this book: the first render records the title and author in
+`book-identity.txt`, and a render of any other book never prunes it. Without
+pruning, entries from older renderer builds stay on disk until you remove
+them. Remove a book's cache when its final render is accepted.

@@ -1811,8 +1811,12 @@ struct NarrationRunResult {
         // Prune only when this process rendered every chapter: then the engines
         // saw every engine call of the finished book. A book completed across
         // several --resume batches has no single process that saw all keys.
+        // The cache must also belong to this book (title and author), so a
+        // directory shared with another book is never pruned.
         if config.synthesisCache?.pruneUnused == true, let synthesisCacheStore,
-            batch.count == totalCount, totalCount > 0
+            batch.count == totalCount, totalCount > 0,
+            synthesisCacheStore.claim(
+                bookIdentity: "title=\(config.title)\nauthor=\(config.author)\n")
         {
             let used = cachingEngines.reduce(into: Set<String>()) { $0.formUnion($1.usedKeys) }
             // Housekeeping must never fail a finished render; nil reports it.

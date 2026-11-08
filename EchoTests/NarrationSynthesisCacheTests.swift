@@ -216,6 +216,7 @@ import Testing
     @Test func voiceResourceDigestTracksTheResolvedVoicePackFile() throws {
         // A voice id with no resolvable pack hashes as absent; a bundled pack
         // hashes its bytes, so a swapped pack under the same id changes keys.
+        #expect(NarrationResources.url(forResource: "af_heart", withExtension: "f32") != nil)
         let missing = NarrationSynthesisCache.resourceDigest(
             for: VoiceID("no_such_voice_pack"), includesWordTimings: false)
         let bundled = NarrationSynthesisCache.resourceDigest(
@@ -402,6 +403,25 @@ import Testing
         let preview = try await HeadlessNarrationRunner().preview(
             config(epub: epub, root: root, run: "second", cache: cache), neuralEvaluator: nil)
         #expect(preview.blocksToRender.isEmpty)
+    }
+
+    @Test func pruneNeverRunsOnACacheAnotherBookClaimed() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let epub = try TestEPUBFixture.twoChapters(in: root)
+        let cache = root.appendingPathComponent("synthesis-cache", isDirectory: true)
+        let store = NarrationSynthesisCacheStore(rootURL: cache)
+        #expect(store.claim(bookIdentity: "title=Other\nauthor=Someone\n"))
+        let foreignKey = String(repeating: "ab", count: 32)
+        try store.write(
+            TTSChunk(samples: [0.1], sampleRate: 24_000, duration: 1.0 / 24_000), key: foreignKey)
+
+        let result = try await HeadlessNarrationRunner().run(
+            config(epub: epub, root: root, run: "mine", cache: cache, prune: true),
+            tts: ContentSeededEngine(recorder: CallRecorder()))
+        #expect(result.complete)
+        #expect(result.synthesisCache?.pruned == nil)
+        #expect(store.containsValidEntry(key: foreignKey))
     }
 
     // MARK: Dry run

@@ -259,6 +259,27 @@ nonisolated final class NarrationSynthesisCacheStore: Sendable {
         try file.write(to: destination, options: .atomic)
     }
 
+    private var bookMarkerURL: URL { rootURL.appendingPathComponent("book-identity.txt") }
+
+    /// Records which book owns this cache. Returns true when the directory is
+    /// new to a book or already belongs to `identity`, false when another book
+    /// claimed it first. Pruning is allowed only for the owning book, so two
+    /// books that share one directory can never delete each other's entries.
+    func claim(bookIdentity identity: String) -> Bool {
+        if let existing = try? String(contentsOf: bookMarkerURL, encoding: .utf8) {
+            return existing == identity
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: rootURL, withIntermediateDirectories: true)
+            try Data(identity.utf8).write(to: bookMarkerURL, options: .withoutOverwriting)
+            return true
+        } catch {
+            // A concurrent first claim may have won the race; honour it.
+            return (try? String(contentsOf: bookMarkerURL, encoding: .utf8)) == identity
+        }
+    }
+
     /// Deletes every entry whose key is not in `keeping`. Only files this
     /// store names (`<2 hex>/<64 hex>.echosyn`) are considered; anything else
     /// in the directory is left alone. Returns the number of entries removed.

@@ -70,7 +70,7 @@ struct NarrateCommand: AsyncParsableCommand {
     @Flag(
         name: .customLong("prune-synthesis-cache"),
         help:
-            "After a run that renders every chapter in one process, delete --synthesis-cache entries the run did not use."
+            "After a run that renders every chapter in one process, delete --synthesis-cache entries the run did not use. Skipped when the cache belongs to another book (title and author)."
     )
     var pruneSynthesisCache = false
     @Flag(
