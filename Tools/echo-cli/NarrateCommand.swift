@@ -68,6 +68,12 @@ struct NarrateCommand: AsyncParsableCommand {
     )
     var synthesisCache: String?
     @Flag(
+        name: .customLong("prune-synthesis-cache"),
+        help:
+            "After a run that renders every chapter in one process, delete --synthesis-cache entries the run did not use."
+    )
+    var pruneSynthesisCache = false
+    @Flag(
         name: .customLong("dry-run"),
         help:
             "Plan the book and list the blocks that would be synthesized against --synthesis-cache. Writes nothing and needs no voice model."
@@ -81,6 +87,9 @@ struct NarrateCommand: AsyncParsableCommand {
         }
         guard !dryRun || synthesisCache != nil else {
             throw ValidationError("--dry-run requires --synthesis-cache DIR to compare against.")
+        }
+        guard !pruneSynthesisCache || synthesisCache != nil else {
+            throw ValidationError("--prune-synthesis-cache requires --synthesis-cache DIR.")
         }
         guard !(resume && contextualPronunciationAudit) else {
             throw ValidationError(
@@ -120,8 +129,12 @@ struct NarrateCommand: AsyncParsableCommand {
             intraOpThreads: threads.map(Int32.init),
             generatePronunciationReview: !noPronunciationReview,
             clearExistingCapturesBeforeRun: !resume,
-            synthesisCacheURL: synthesisCache.map { URL(fileURLWithPath: $0, isDirectory: true) },
-            rendererBuildDigest: try Self.rendererBuildDigest())
+            synthesisCache: try synthesisCache.map {
+                NarrationSynthesisCacheConfig(
+                    directoryURL: URL(fileURLWithPath: $0, isDirectory: true),
+                    rendererBuildDigest: try Self.rendererBuildDigest(),
+                    pruneUnused: pruneSynthesisCache)
+            })
 
         if dryRun {
             let preview = try await HeadlessNarrationRunner().preview(config)
@@ -190,11 +203,14 @@ struct NarrateCommand: AsyncParsableCommand {
         guard let executable = Bundle.main.executableURL else {
             throw ValidationError("Cannot locate the echo-cli executable to fingerprint it.")
         }
-        return try HeadlessNarrationRunner.fileSHA256(at: executable.resolvingSymlinksInPath())
+        return try NarrationSynthesisCache.fileSHA256(at: executable.resolvingSymlinksInPath())
     }
 
     static func cacheSummary(_ stats: NarrationSynthesisCacheStats) -> String {
         "SYNTHESIS_CACHE \(stats.hits) reused, \(stats.misses) synthesized"
+            + (stats.rejectedNotStored > 0
+                ? ", \(stats.rejectedNotStored) rejected by the quality check and not stored" : "")
             + (stats.writeFailures > 0 ? ", \(stats.writeFailures) not stored" : "")
+            + (stats.pruned.map { ", \($0) unused entries pruned" } ?? "")
     }
 }

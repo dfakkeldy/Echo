@@ -65,17 +65,13 @@ struct NarrationRunConfig {
     /// Direct CLI fresh runs clear prior chapter markers/audio after acquiring
     /// the runner-owned cross-process lease. Library callers resume by default.
     var clearExistingCapturesBeforeRun: Bool = false
-    /// Optional book-stable directory of synthesized chunks
-    /// (`NarrationSynthesisCacheStore`). When set, every engine call whose
-    /// frozen synthesis plan, voice and renderer match a stored entry replays
-    /// that audio instead of synthesizing, so an edited book re-synthesizes
-    /// only the chunks whose inputs changed. Keep it outside `workDir` when the
-    /// caller uses a new work directory per source revision.
-    var synthesisCacheURL: URL? = nil
-    /// Identity of the running renderer build, normally the SHA-256 of the
-    /// `echo-cli` executable. Part of every synthesis-cache key, so a different
-    /// renderer reuses nothing.
-    var rendererBuildDigest: String = "unbound"
+    /// Optional book-stable synthesis cache. When set, every engine call whose
+    /// frozen synthesis plan, voice, voice resources and renderer build match a
+    /// stored entry replays that audio instead of synthesizing, so an edited
+    /// book re-synthesizes only the chunks whose inputs changed. Keep the
+    /// directory outside `workDir` when the caller uses a new work directory
+    /// per source revision.
+    var synthesisCache: NarrationSynthesisCacheConfig? = nil
 }
 
 // MARK: - Progress
@@ -1362,20 +1358,7 @@ struct NarrationRunResult {
             },
         progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
-        if config.voicePlanURL != nil {
-            try Self.validateVoicePlanEPUBURL(config.epubURL)
-        }
-        let source = try resolveNarrationSource(at: config.epubURL)
-        if config.voicePlanURL != nil {
-            guard case .epubFile = source else {
-                throw NarrationRunError.voicePlan(
-                    "--voice-plan requires an EPUB file, not a PDF or directory source")
-            }
-            guard config.chapterVoicesByDisplayNumber.isEmpty else {
-                throw NarrationRunError.voicePlan(
-                    "--voice-plan cannot be combined with --chapter-voice")
-            }
-        }
+        let source = try validatedSource(for: config)
         let runLease = try Self.acquireRunLease(for: config)
         defer { withExtendedLifetime(runLease) {} }
         let fm = FileManager.default
@@ -1603,32 +1586,43 @@ struct NarrationRunResult {
             }
         }
 
-        let synthesisCacheContext = NarrationSynthesisCacheContext(
-            rendererBuildDigest: config.rendererBuildDigest,
-            includesWordTimings: config.includeWordTimings)
+        let synthesisCacheContext = config.synthesisCache.map {
+            NarrationSynthesisCacheContext(
+                rendererBuildDigest: $0.rendererBuildDigest,
+                includesWordTimings: config.includeWordTimings)
+        }
+        let synthesisCacheStore = config.synthesisCache.map {
+            NarrationSynthesisCacheStore(rootURL: $0.directoryURL)
+        }
         let cachingEngines: [CachingTTSEngine]
         let engines: [TTSEngine]
         if batch.isEmpty {
             cachingEngines = []
             engines = []
-        } else if let synthesisCacheURL = config.synthesisCacheURL {
-            let store = NarrationSynthesisCacheStore(rootURL: synthesisCacheURL)
+        } else if let synthesisCacheStore, let synthesisCacheContext {
             cachingEngines = (0..<workers).map { _ in
-                CachingTTSEngine(base: makeEngine(), store: store, context: synthesisCacheContext)
+                CachingTTSEngine(
+                    base: makeEngine(), store: synthesisCacheStore,
+                    context: synthesisCacheContext)
             }
             engines = cachingEngines
         } else {
             cachingEngines = []
             engines = (0..<workers).map { _ in makeEngine() }
         }
+        var prunedSynthesisEntries: Int?
         let synthesisCacheStats: () -> NarrationSynthesisCacheStats? = {
-            guard config.synthesisCacheURL != nil else { return nil }
-            return cachingEngines.reduce(into: NarrationSynthesisCacheStats()) { total, engine in
+            guard config.synthesisCache != nil else { return nil }
+            var total = cachingEngines.reduce(into: NarrationSynthesisCacheStats()) {
+                total, engine in
                 let stats = engine.stats
                 total.hits += stats.hits
                 total.misses += stats.misses
                 total.writeFailures += stats.writeFailures
+                total.rejectedNotStored += stats.rejectedNotStored
             }
+            total.pruned = prunedSynthesisEntries
+            return total
         }
         if let first = engines.first {
             let firstChapterBlockIDs = Set(
@@ -1814,6 +1808,17 @@ struct NarrationRunResult {
                 synthesisCache: synthesisCacheStats())
         }
 
+        // Prune only when this process rendered every chapter: then the engines
+        // saw every engine call of the finished book. A book completed across
+        // several --resume batches has no single process that saw all keys.
+        if config.synthesisCache?.pruneUnused == true, let synthesisCacheStore,
+            batch.count == totalCount, totalCount > 0
+        {
+            let used = cachingEngines.reduce(into: Set<String>()) { $0.formUnion($1.usedKeys) }
+            // Housekeeping must never fail a finished render; nil reports it.
+            prunedSynthesisEntries = try? synthesisCacheStore.prune(keeping: used)
+        }
+
         // 6. Export the chaptered .m4b.
         let outputStem = config.outM4BURL.deletingPathExtension()
         let auditURL = outputStem.appendingPathExtension("pronunciation-audit.json")
@@ -1961,6 +1966,26 @@ struct NarrationRunResult {
             synthesisCache: synthesisCacheStats())
     }
 
+    /// Resolves the narration source and rejects voice-option combinations a
+    /// render would refuse, for both `run` and `preview`.
+    private func validatedSource(for config: NarrationRunConfig) throws -> SourceKind {
+        if config.voicePlanURL != nil {
+            try Self.validateVoicePlanEPUBURL(config.epubURL)
+        }
+        let source = try resolveNarrationSource(at: config.epubURL)
+        if config.voicePlanURL != nil {
+            guard case .epubFile = source else {
+                throw NarrationRunError.voicePlan(
+                    "--voice-plan requires an EPUB file, not a PDF or directory source")
+            }
+            guard config.chapterVoicesByDisplayNumber.isEmpty else {
+                throw NarrationRunError.voicePlan(
+                    "--voice-plan cannot be combined with --chapter-voice")
+            }
+        }
+        return source
+    }
+
     /// Resolves the per-chapter voices and the optional source-bound block
     /// voice plan exactly once, for both rendering and dry-run previews.
     private static func resolveVoices(
@@ -2034,10 +2059,7 @@ struct NarrationRunResult {
                 await EnglishPronunciationAuditPack.bundledOrEmpty()
             }
     ) async throws -> NarrationRerenderPreview {
-        if config.voicePlanURL != nil {
-            try Self.validateVoicePlanEPUBURL(config.epubURL)
-        }
-        let source = try resolveNarrationSource(at: config.epubURL)
+        let source = try validatedSource(for: config)
         let pronunciationPack = await pronunciationPackLoader()
         let pronunciationAuditPack = await pronunciationAuditPackLoader()
         let sourceURL = source.sourceURL
@@ -2072,10 +2094,20 @@ struct NarrationRunResult {
                 FoundationModelsContextualPronunciationEvaluator.notRequestedEvaluator(),
             neuralEvaluator: neuralEvaluator,
             fmEnabled: { config.enableFMNormalization })
-        let store = config.synthesisCacheURL.map { NarrationSynthesisCacheStore(rootURL: $0) }
+        let store = config.synthesisCache.map {
+            NarrationSynthesisCacheStore(rootURL: $0.directoryURL)
+        }
         let context = NarrationSynthesisCacheContext(
-            rendererBuildDigest: config.rendererBuildDigest,
+            rendererBuildDigest: config.synthesisCache?.rendererBuildDigest ?? "none",
             includesWordTimings: config.includeWordTimings)
+        var resourceDigests: [VoiceID: String] = [:]
+        func resourceDigest(for voice: VoiceID) -> String {
+            if let known = resourceDigests[voice] { return known }
+            let digest = NarrationSynthesisCache.resourceDigest(
+                for: voice, includesWordTimings: config.includeWordTimings)
+            resourceDigests[voice] = digest
+            return digest
+        }
 
         var previewBlocks: [NarrationRerenderPreview.Block] = []
         for chapter in plannedChapters {
@@ -2092,12 +2124,14 @@ struct NarrationRunResult {
             let planned = try await svc.synthesisPreview(
                 blocks: chapter.blocks, voice: chapterVoice, blockVoice: blockVoice)
             for block in planned {
+                let digest = resourceDigest(for: block.voice)
                 let cached =
                     store.map { store in
                         block.chunks.filter {
-                            store.contains(
+                            store.containsValidEntry(
                                 key: NarrationSynthesisCache.key(
-                                    for: $0, voice: block.voice, context: context))
+                                    for: $0, voice: block.voice, context: context,
+                                    resourceDigest: digest))
                         }.count
                     } ?? 0
                 previewBlocks.append(

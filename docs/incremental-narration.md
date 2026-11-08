@@ -45,7 +45,8 @@ The cache key is a SHA-256 over everything the engine consumes:
 | --- | --- |
 | Display text, G2P text, phonemes, phoneme IDs, word count, word groups | The exact model input and the word-timing map |
 | Pronunciation fallback hits | Returned with the audio as review evidence |
-| Voice and renderer family | Voice pack and model |
+| Voice and renderer family | Voice and model family |
+| SHA-256 of the voice pack (`.f32`, `.rows`) and duration head | These load from disk (`ECHO_RESOURCE_DIR` or the bundle), not from the binary |
 | `renderVersion` | Renderer behaviour pin |
 | SHA-256 of the `echo-cli` executable | Any other renderer build reuses nothing |
 | Word timings on or off | Changes the returned timings |
@@ -85,6 +86,9 @@ metadata. The chapter that holds the edit is encoded again from start to end.
   gets a new capture set, and `--resume` still fails closed on a mismatch.
 - Every cache entry stores its key and the SHA-256 of its PCM. A corrupt,
   truncated or misfiled entry is a miss and is synthesized again.
+- Audio that fails the quality check (empty, near-silent or implausibly short)
+  is never stored. Echo's retry of that chunk reaches the engine, and a later
+  run tries it fresh.
 - The dry run takes no run lease and loads no voice model, so it is safe while
   another render owns the renderer. It predicts first attempts only: a chunk
   that fails the quality check is split and retried at render time.
@@ -94,4 +98,10 @@ metadata. The chapter that holds the edit is encoded again from start to end.
 
 Entries are raw Float32 PCM at 24 kHz: about 5.8 MB per minute of speech, or
 about 0.5 GB for an 80-minute book. Each edit adds entries for the changed
-chunks only. Remove a book's cache when its final render is accepted.
+chunks only, and every new renderer build starts a fresh set of keys.
+
+Add `--prune-synthesis-cache` to a render that covers the whole book in one
+process (no `--max-chapters` split). After the book completes, it deletes every
+entry that render did not use, so the cache holds exactly the latest render.
+It deletes only files named like cache entries. Remove a book's cache when its
+final render is accepted.

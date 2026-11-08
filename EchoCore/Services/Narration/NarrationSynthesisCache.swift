@@ -3,6 +3,19 @@ import CryptoKit
 import Foundation
 import Synchronization
 
+/// Caller configuration for a run's synthesis cache. The renderer build digest
+/// is required alongside the directory, so no caller can share one cache
+/// across renderer builds by forgetting it.
+nonisolated struct NarrationSynthesisCacheConfig: Sendable, Equatable {
+    /// Book-stable cache directory.
+    let directoryURL: URL
+    /// SHA-256 of the running renderer build (normally the `echo-cli` binary).
+    let rendererBuildDigest: String
+    /// After a run that rendered every chapter in this process, delete entries
+    /// the run did not use, so the cache holds only the latest render.
+    var pruneUnused: Bool = false
+}
+
 /// Inputs outside the synthesis plan that still change the engine's output.
 /// A different value for any field means no cached chunk is reused.
 nonisolated struct NarrationSynthesisCacheContext: Sendable, Equatable {
@@ -43,7 +56,8 @@ nonisolated enum NarrationSynthesisCache {
     static func key(
         for chunk: PlannedSynthesisChunk,
         voice: VoiceID,
-        context: NarrationSynthesisCacheContext
+        context: NarrationSynthesisCacheContext,
+        resourceDigest: String
     ) -> String {
         let groupCounts = chunk.authoredWordGroupCounts.map {
             $0.map(String.init).joined(separator: ",")
@@ -59,6 +73,7 @@ nonisolated enum NarrationSynthesisCache {
             "renderer-build=\(context.rendererBuildDigest)",
             "renderer=\(VoiceCatalog.rendererIdentity(for: [voice]))",
             "voice=\(voice.rawValue)",
+            "voice-resources=\(resourceDigest)",
             "word-timings=\(context.includesWordTimings)",
             "display=\(chunk.displayText)",
             "g2p=\(chunk.g2pInputText)",
@@ -68,6 +83,37 @@ nonisolated enum NarrationSynthesisCache {
             "word-groups=\(groupCounts ?? "none")",
             "fallback-hits=\(fallbackJSON)",
         ])
+    }
+
+    /// SHA-256 over the on-disk resources the engine loads for `voice` that
+    /// are not compiled into the binary: the Kokoro voice pack (`.f32` and
+    /// `.rows`) and, when word timings are on, the duration head. They resolve
+    /// through `NarrationResources`, so `ECHO_RESOURCE_DIR` can swap them under
+    /// the same voice id and executable. Missing files hash as absent; Phonon
+    /// models are pinned in the binary and are covered by the build digest.
+    static func resourceDigest(for voice: VoiceID, includesWordTimings: Bool) -> String {
+        var resources: [(String, String)] = [
+            (voice.rawValue, "f32"), (voice.rawValue, "rows"),
+        ]
+        if includesWordTimings { resources.append(("kokoro_dur_head", "onnx")) }
+        return framedSHA256(
+            resources.map { name, ext in
+                let digest =
+                    NarrationResources.url(forResource: name, withExtension: ext)
+                    .flatMap { try? fileSHA256(at: $0) } ?? "absent"
+                return "\(name).\(ext)=\(digest)"
+            })
+    }
+
+    /// Streaming SHA-256 of a file's bytes.
+    static func fileSHA256(at url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hex(hasher.finalize())
     }
 
     static func framedSHA256(_ components: [String]) -> String {
@@ -122,34 +168,15 @@ nonisolated final class NarrationSynthesisCacheStore: Sendable {
             .appendingPathComponent("\(key).echosyn")
     }
 
-    func contains(key: String) -> Bool {
-        FileManager.default.fileExists(atPath: url(forKey: key).path)
+    /// True when a verified entry exists: the same check `read` applies, so a
+    /// dry run never counts a corrupt entry as reusable.
+    func containsValidEntry(key: String) -> Bool {
+        verifiedEntry(key: key) != nil
     }
 
     /// Returns the stored chunk, or nil when it is absent or fails verification.
     func read(key: String) -> TTSChunk? {
-        guard let data = try? Data(contentsOf: url(forKey: key)),
-            data.starts(with: Self.magic)
-        else { return nil }
-        var offset = Self.magic.count
-        guard data.count >= offset + 4 else { return nil }
-        let headerLength = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes {
-            Int(UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)))
-        }
-        offset += 4
-        guard headerLength > 0, data.count >= offset + headerLength,
-            let header = try? JSONDecoder().decode(
-                Header.self, from: data.subdata(in: offset..<(offset + headerLength)))
-        else { return nil }
-        offset += headerLength
-        let pcm = data.subdata(in: offset..<data.count)
-        guard header.key == key,
-            header.sampleCount >= 0,
-            pcm.count == header.sampleCount * MemoryLayout<UInt32>.size,
-            NarrationSynthesisCache.hex(SHA256.hash(data: pcm)) == header.pcmSHA256,
-            header.sampleRate.isFinite, header.sampleRate > 0,
-            header.duration.isFinite, header.duration >= 0
-        else { return nil }
+        guard let (header, pcm) = verifiedEntry(key: key) else { return nil }
         let samples: [Float] = pcm.withUnsafeBytes { raw in
             (0..<header.sampleCount).map { index in
                 Float(
@@ -166,6 +193,35 @@ nonisolated final class NarrationSynthesisCacheStore: Sendable {
                 ChunkWordTiming(wordIndex: $0.wordIndex, start: $0.start, end: $0.end)
             },
             pronunciationFallbackHits: header.pronunciationFallbackHits)
+    }
+
+    private func verifiedEntry(key: String) -> (Header, Data)? {
+        guard let data = try? Data(contentsOf: url(forKey: key)),
+            data.starts(with: Self.magic)
+        else { return nil }
+        var offset = Self.magic.count
+        guard data.count >= offset + 4 else { return nil }
+        let headerLength = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes {
+            Int(UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)))
+        }
+        offset += 4
+        guard headerLength > 0, data.count >= offset + headerLength,
+            let header = try? JSONDecoder().decode(
+                Header.self, from: data.subdata(in: offset..<(offset + headerLength)))
+        else { return nil }
+        offset += headerLength
+        let pcm = data.subdata(in: offset..<data.count)
+        let expectedBytes = header.sampleCount.multipliedReportingOverflow(
+            by: MemoryLayout<UInt32>.size)
+        guard header.key == key,
+            header.sampleCount >= 0,
+            !expectedBytes.overflow,
+            pcm.count == expectedBytes.partialValue,
+            NarrationSynthesisCache.hex(SHA256.hash(data: pcm)) == header.pcmSHA256,
+            header.sampleRate.isFinite, header.sampleRate > 0,
+            header.duration.isFinite, header.duration >= 0
+        else { return nil }
+        return (header, pcm)
     }
 
     /// Atomically stores `chunk` under `key`. Failures are reported to the
@@ -202,6 +258,29 @@ nonisolated final class NarrationSynthesisCacheStore: Sendable {
         // workers and crashes never leave a torn entry under the final name.
         try file.write(to: destination, options: .atomic)
     }
+
+    /// Deletes every entry whose key is not in `keeping`. Only files this
+    /// store names (`<2 hex>/<64 hex>.echosyn`) are considered; anything else
+    /// in the directory is left alone. Returns the number of entries removed.
+    @discardableResult
+    func prune(keeping: Set<String>) throws -> Int {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: rootURL.path) else { return 0 }
+        var removed = 0
+        for shard in try fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)
+        where shard.lastPathComponent.count == 2 {
+            for entry in try fm.contentsOfDirectory(at: shard, includingPropertiesForKeys: nil)
+            where entry.pathExtension == "echosyn" {
+                let key = entry.deletingPathExtension().lastPathComponent
+                guard key.count == 64, key.hasPrefix(shard.lastPathComponent),
+                    key.allSatisfy(\.isHexDigit), !keeping.contains(key)
+                else { continue }
+                try fm.removeItem(at: entry)
+                removed += 1
+            }
+        }
+        return removed
+    }
 }
 
 /// Hit and miss counts for one run's synthesis cache.
@@ -209,6 +288,11 @@ nonisolated struct NarrationSynthesisCacheStats: Sendable, Equatable {
     var hits = 0
     var misses = 0
     var writeFailures = 0
+    /// Fresh chunks not stored because they failed the quality check, so a
+    /// retry or a later run synthesizes them again instead of replaying them.
+    var rejectedNotStored = 0
+    /// Entries deleted by `pruneUnused`; nil when no prune ran.
+    var pruned: Int? = nil
 }
 
 /// Engine wrapper that replays cached chunks and stores fresh ones.
@@ -221,6 +305,8 @@ nonisolated final class CachingTTSEngine: TTSEngine {
     let store: NarrationSynthesisCacheStore
     let context: NarrationSynthesisCacheContext
     private let counters: Mutex<NarrationSynthesisCacheStats>
+    private let usedKeySet: Mutex<Set<String>>
+    private let resourceDigests: Mutex<[VoiceID: String]>
 
     init(
         base: TTSEngine,
@@ -231,9 +317,22 @@ nonisolated final class CachingTTSEngine: TTSEngine {
         self.store = store
         self.context = context
         self.counters = Mutex(NarrationSynthesisCacheStats())
+        self.usedKeySet = Mutex([])
+        self.resourceDigests = Mutex([:])
     }
 
     var stats: NarrationSynthesisCacheStats { counters.withLock { $0 } }
+
+    /// Every key this engine replayed or stored, for `pruneUnused`.
+    var usedKeys: Set<String> { usedKeySet.withLock { $0 } }
+
+    private func resourceDigest(for voice: VoiceID) -> String {
+        if let known = resourceDigests.withLock({ $0[voice] }) { return known }
+        let digest = NarrationSynthesisCache.resourceDigest(
+            for: voice, includesWordTimings: context.includesWordTimings)
+        resourceDigests.withLock { $0[voice] = digest }
+        return digest
+    }
 
     func prepare() async throws { try await base.prepare() }
 
@@ -252,19 +351,47 @@ nonisolated final class CachingTTSEngine: TTSEngine {
     }
 
     func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
-        let key = NarrationSynthesisCache.key(for: chunk, voice: voice, context: context)
-        if let cached = store.read(key: key) {
+        let key = NarrationSynthesisCache.key(
+            for: chunk, voice: voice, context: context,
+            resourceDigest: resourceDigest(for: voice))
+        if let cached = await Self.readOffMain(store, key: key) {
             counters.withLock { $0.hits += 1 }
+            usedKeySet.withLock { _ = $0.insert(key) }
             return cached
         }
         let fresh = try await base.synthesize(chunk, voice: voice)
         counters.withLock { $0.misses += 1 }
-        do {
-            try store.write(fresh, key: key)
-        } catch {
+        // Never persist audio the quality gate rejects: NarrationService
+        // retries a rejected atomic chunk with the same frozen plan, and that
+        // retry must reach the engine instead of replaying the bad take.
+        guard case .acceptable = NarrationChunkQuality.evaluate(fresh, text: chunk.displayText)
+        else {
+            counters.withLock { $0.rejectedNotStored += 1 }
+            return fresh
+        }
+        if await Self.writeOffMain(store, chunk: fresh, key: key) {
+            usedKeySet.withLock { _ = $0.insert(key) }
+        } else {
             counters.withLock { $0.writeFailures += 1 }
         }
         return fresh
+    }
+
+    // File reads, hashing and sample conversion run on the cooperative pool:
+    // under SWIFT_APPROACHABLE_CONCURRENCY a plain nonisolated async method
+    // stays on its caller's actor, which is the MainActor render worker here.
+    @concurrent
+    private static func readOffMain(
+        _ store: NarrationSynthesisCacheStore, key: String
+    ) async -> TTSChunk? {
+        store.read(key: key)
+    }
+
+    @concurrent
+    private static func writeOffMain(
+        _ store: NarrationSynthesisCacheStore, chunk: TTSChunk, key: String
+    ) async -> Bool {
+        (try? store.write(chunk, key: key)) != nil
     }
 
     func unload() async { await base.unload() }

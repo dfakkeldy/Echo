@@ -57,21 +57,25 @@ import Testing
 
     private func plan(
         display: String = "Hello there.",
+        g2p: String? = nil,
+        phonemes: String = "abc",
         phonemeIDs: [Int32] = [0, 50, 51, 52, 0],
+        wordCount: Int = 2,
         fallbackHits: [PronunciationFallbackHit] = []
     ) -> PlannedSynthesisChunk {
         PlannedSynthesisChunk(
             displayText: display,
-            g2pInputText: display,
-            phonemes: "abc",
+            g2pInputText: g2p ?? display,
+            phonemes: phonemes,
             phonemeIDs: phonemeIDs,
-            wordCount: 2,
+            wordCount: wordCount,
             pronunciationFallbackHits: fallbackHits,
             pronunciationEvidenceValidation: .matched)
     }
 
     private func config(
-        epub: URL, root: URL, run: String, cache: URL?, digest: String = "build-a"
+        epub: URL, root: URL, run: String, cache: URL?, digest: String = "build-a",
+        prune: Bool = false
     ) -> NarrationRunConfig {
         var config = NarrationRunConfig(
             epubURL: epub,
@@ -82,8 +86,10 @@ import Testing
             title: "Fixture",
             author: "Tester",
             maxNewChaptersPerRun: nil)
-        config.synthesisCacheURL = cache
-        config.rendererBuildDigest = digest
+        config.synthesisCache = cache.map {
+            NarrationSynthesisCacheConfig(
+                directoryURL: $0, rendererBuildDigest: digest, pruneUnused: prune)
+        }
         config.generatePronunciationReview = false
         return config
     }
@@ -168,42 +174,114 @@ import Testing
     @Test func keyChangesWithEveryEngineInputAndRendererIdentity() {
         let context = NarrationSynthesisCacheContext(
             rendererBuildDigest: "build-a", includesWordTimings: true)
-        let base = NarrationSynthesisCache.key(
-            for: plan(), voice: VoiceID("am_michael"), context: context)
+        func key(
+            _ chunk: PlannedSynthesisChunk, voice: String = "am_michael",
+            context: NarrationSynthesisCacheContext? = nil, resources: String = "pack-a"
+        ) -> String {
+            NarrationSynthesisCache.key(
+                for: chunk, voice: VoiceID(voice), context: context ?? contextA,
+                resourceDigest: resources)
+        }
+        let contextA = context
+        let base = key(plan())
 
-        #expect(
-            base
-                == NarrationSynthesisCache.key(
-                    for: plan(), voice: VoiceID("am_michael"), context: context))
+        #expect(base == key(plan()))
         let variants = [
-            NarrationSynthesisCache.key(
-                for: plan(phonemeIDs: [0, 50, 51, 53, 0]), voice: VoiceID("am_michael"),
-                context: context),
-            NarrationSynthesisCache.key(
-                for: plan(display: "Hello, there."), voice: VoiceID("am_michael"),
-                context: context),
-            NarrationSynthesisCache.key(
-                for: plan(fallbackHits: [
-                    PronunciationFallbackHit(word: "there", ipa: "ðɛɹ")
-                ]), voice: VoiceID("am_michael"), context: context),
-            NarrationSynthesisCache.key(
-                for: plan(), voice: VoiceID("bf_emma"), context: context),
-            NarrationSynthesisCache.key(
-                for: plan(), voice: VoiceID("am_michael"),
+            key(plan(phonemeIDs: [0, 50, 51, 53, 0])),
+            key(plan(display: "Hello, there.")),
+            key(plan(g2p: "Hello [there](/ðɛɹ/).")),
+            key(plan(phonemes: "abd")),
+            key(plan(wordCount: 3)),
+            key(plan(fallbackHits: [PronunciationFallbackHit(word: "there", ipa: "ðɛɹ")])),
+            key(plan(), voice: "bf_emma"),
+            key(plan(), resources: "pack-b"),
+            key(
+                plan(),
                 context: NarrationSynthesisCacheContext(
                     rendererBuildDigest: "build-b", includesWordTimings: true)),
-            NarrationSynthesisCache.key(
-                for: plan(), voice: VoiceID("am_michael"),
+            key(
+                plan(),
                 context: NarrationSynthesisCacheContext(
                     renderVersion: NarrationFileNaming.renderVersion + 1,
                     rendererBuildDigest: "build-a", includesWordTimings: true)),
-            NarrationSynthesisCache.key(
-                for: plan(), voice: VoiceID("am_michael"),
+            key(
+                plan(),
                 context: NarrationSynthesisCacheContext(
                     rendererBuildDigest: "build-a", includesWordTimings: false)),
         ]
         #expect(!variants.contains(base))
         #expect(Set(variants).count == variants.count)
+    }
+
+    @Test func voiceResourceDigestTracksTheResolvedVoicePackFile() throws {
+        // A voice id with no resolvable pack hashes as absent; a bundled pack
+        // hashes its bytes, so a swapped pack under the same id changes keys.
+        let missing = NarrationSynthesisCache.resourceDigest(
+            for: VoiceID("no_such_voice_pack"), includesWordTimings: false)
+        let bundled = NarrationSynthesisCache.resourceDigest(
+            for: VoiceID("af_heart"), includesWordTimings: false)
+        #expect(missing != bundled)
+        #expect(
+            bundled
+                == NarrationSynthesisCache.resourceDigest(
+                    for: VoiceID("af_heart"), includesWordTimings: false))
+        #expect(
+            bundled
+                != NarrationSynthesisCache.resourceDigest(
+                    for: VoiceID("af_heart"), includesWordTimings: true))
+    }
+
+    private actor CallCounter {
+        private(set) var count = 0
+        func increment() { count += 1 }
+    }
+
+    /// Returns all-zero audio, which `NarrationChunkQuality` rejects.
+    private final class SilentEngine: TTSEngine {
+        let counter: CallCounter
+        init(counter: CallCounter) { self.counter = counter }
+        func prepare() async throws {}
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            await counter.increment()
+            return TTSChunk(
+                samples: [Float](repeating: 0, count: 24_000), sampleRate: 24_000, duration: 1)
+        }
+    }
+
+    @Test func rejectedAudioIsNeverStoredSoRetriesReachTheEngine() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NarrationSynthesisCacheStore(rootURL: root)
+        let counter = CallCounter()
+        let engine = CachingTTSEngine(
+            base: SilentEngine(counter: counter), store: store,
+            context: NarrationSynthesisCacheContext(
+                rendererBuildDigest: "build-a", includesWordTimings: false))
+
+        _ = try await engine.synthesize(plan(), voice: VoiceID("af_heart"))
+        _ = try await engine.synthesize(plan(), voice: VoiceID("af_heart"))
+        #expect(await counter.count == 2)
+        #expect(engine.stats.hits == 0)
+        #expect(engine.stats.rejectedNotStored == 2)
+        #expect(engine.usedKeys.isEmpty)
+    }
+
+    @Test func acceptedAudioIsStoredAndReplayedWithoutTheEngine() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NarrationSynthesisCacheStore(rootURL: root)
+        let recorder = CallRecorder()
+        let engine = CachingTTSEngine(
+            base: ContentSeededEngine(recorder: recorder), store: store,
+            context: NarrationSynthesisCacheContext(
+                rendererBuildDigest: "build-a", includesWordTimings: false))
+
+        let fresh = try await engine.synthesize(plan(), voice: VoiceID("af_heart"))
+        let replayed = try await engine.synthesize(plan(), voice: VoiceID("af_heart"))
+        #expect(replayed == fresh)
+        #expect(await recorder.texts.count == 1)
+        #expect(engine.stats == NarrationSynthesisCacheStats(hits: 1, misses: 1))
+        #expect(engine.usedKeys.count == 1)
     }
 
     // MARK: Incremental re-render
@@ -286,6 +364,44 @@ import Testing
             tts: ContentSeededEngine(recorder: CallRecorder()))
         #expect(result.complete)
         #expect(result.synthesisCache == nil)
+    }
+
+    @Test func pruneKeepsOnlyTheLatestRendersEntries() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let epub = try TestEPUBFixture.twoChapters(in: root)
+        let cache = root.appendingPathComponent("synthesis-cache", isDirectory: true)
+        let recorder = CallRecorder()
+        func entryCount() throws -> Int {
+            try FileManager.default.subpathsOfDirectory(atPath: cache.path)
+                .filter { $0.hasSuffix(".echosyn") }.count
+        }
+        // A foreign file in the cache directory is never touched.
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let foreign = cache.appendingPathComponent("README.txt")
+        try Data("keep".utf8).write(to: foreign)
+
+        let first = try await HeadlessNarrationRunner().run(
+            config(epub: epub, root: root, run: "first", cache: cache),
+            tts: ContentSeededEngine(recorder: recorder))
+        let firstEntries = try entryCount()
+        #expect(firstEntries == first.synthesisCache?.misses)
+        #expect(first.synthesisCache?.pruned == nil)
+
+        try editSecondParagraphOfChapterOne(in: epub)
+        let second = try await HeadlessNarrationRunner().run(
+            config(epub: epub, root: root, run: "second", cache: cache, prune: true),
+            tts: ContentSeededEngine(recorder: recorder))
+        let stats = try #require(second.synthesisCache)
+        // The edited paragraph's old chunks are gone; its new ones replace them.
+        #expect(stats.pruned == stats.misses)
+        #expect(try entryCount() == firstEntries)
+        #expect(FileManager.default.fileExists(atPath: foreign.path))
+
+        // Nothing the latest render used was pruned.
+        let preview = try await HeadlessNarrationRunner().preview(
+            config(epub: epub, root: root, run: "second", cache: cache), neuralEvaluator: nil)
+        #expect(preview.blocksToRender.isEmpty)
     }
 
     // MARK: Dry run
