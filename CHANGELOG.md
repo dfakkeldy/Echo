@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- `echo-cli narrate --synthesis-cache DIR` reuses synthesized audio across
+  renders of an edited book: only chunks whose frozen synthesis plan, voice or
+  renderer build changed are synthesized again. `--dry-run` lists the blocks
+  an edit would re-render without loading a model. See
+  `docs/incremental-narration.md`.
+
 - Refreshed the current manual, learning/focus/beta guides, contributor overview,
   architecture map, roadmap status, and source-linked devlog. Documentation now
   distinguishes phone/Mac/Watch features, Anki backend and picker availability,

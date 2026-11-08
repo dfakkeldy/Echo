@@ -60,7 +60,7 @@ nonisolated struct TTSChunk: Sendable, Equatable {
 }
 
 /// The swappable narration engine boundary. Mocked in tests; Kokoro in Plan 3.
-protocol TTSEngine: Sendable {
+nonisolated protocol TTSEngine: Sendable {
     func prepare() async throws
     /// Progress-reporting variant. Declared as a protocol REQUIREMENT (not merely
     /// an extension method) so a call through the `any TTSEngine` existential —
