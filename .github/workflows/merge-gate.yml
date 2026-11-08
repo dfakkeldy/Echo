@@ -7,12 +7,14 @@ name: Merge gate
 # https://github.com/dfakkeldy/merge-gate
 #
 # This file is the same in every repository; copy it from dfakkeldy/merge-gate.
-# - pull_request_target runs this file from the base branch, so a PR can't change
-#   its own gate. Never add a checkout step: nothing here may run the PR's code.
+# - pull_request_target runs this file from the repository's default branch, for a PR
+#   into any branch, so a PR can't change its own gate. Where the integration branch
+#   isn't the default, keep this same file on both, so promotions merge cleanly.
+# - Never add a checkout step: nothing here may run the PR's code.
 # - edited is here for a change of base branch (a retarget to main).
 # - Never add a job-level `if:`. A skipped job reports success to branch protection.
-# - The check belongs to the head commit, which several PRs can share, so runs for
-#   one commit queue behind each other and each judges every open PR on it.
+# - The check belongs to the head commit, which several PRs can share, so a newer run
+#   for that commit cancels the older one, and each run judges every open PR on it.
 
 on:
   pull_request_target:
