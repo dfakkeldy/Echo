@@ -61,11 +61,35 @@ struct NarrateCommand: AsyncParsableCommand {
             "Evaluate contextual pronunciation choices for qualification (slower; does not change audio)."
     )
     var contextualPronunciationAudit = false
+    @Option(
+        name: .customLong("synthesis-cache"),
+        help:
+            "Book-stable directory of synthesized chunks. Reuses audio for every chunk whose frozen synthesis plan, voice and renderer build are unchanged."
+    )
+    var synthesisCache: String?
+    @Flag(
+        name: .customLong("prune-synthesis-cache"),
+        help:
+            "After a run that renders every chapter in one process, delete --synthesis-cache entries the run did not use. Skipped when the cache belongs to another book (title and author)."
+    )
+    var pruneSynthesisCache = false
+    @Flag(
+        name: .customLong("dry-run"),
+        help:
+            "Plan the book and list the blocks that would be synthesized against --synthesis-cache. Writes nothing and needs no voice model."
+    )
+    var dryRun = false
 
     func validate() throws {
         guard jobs > 0, threads.map({ $0 > 0 && $0 <= Int(Int32.max) }) ?? true else {
             throw ValidationError(
                 "--jobs and --threads must be positive; threads must fit a 32-bit integer.")
+        }
+        guard !dryRun || synthesisCache != nil else {
+            throw ValidationError("--dry-run requires --synthesis-cache DIR to compare against.")
+        }
+        guard !pruneSynthesisCache || synthesisCache != nil else {
+            throw ValidationError("--prune-synthesis-cache requires --synthesis-cache DIR.")
         }
         guard !(resume && contextualPronunciationAudit) else {
             throw ValidationError(
@@ -104,7 +128,19 @@ struct NarrateCommand: AsyncParsableCommand {
             jobs: max(1, jobs),
             intraOpThreads: threads.map(Int32.init),
             generatePronunciationReview: !noPronunciationReview,
-            clearExistingCapturesBeforeRun: !resume)
+            clearExistingCapturesBeforeRun: !resume,
+            synthesisCache: try synthesisCache.map {
+                NarrationSynthesisCacheConfig(
+                    directoryURL: URL(fileURLWithPath: $0, isDirectory: true),
+                    rendererBuildDigest: try Self.rendererBuildDigest(),
+                    pruneUnused: pruneSynthesisCache)
+            })
+
+        if dryRun {
+            let preview = try await HeadlessNarrationRunner().preview(config)
+            for line in preview.reportLines() { print(line) }
+            return
+        }
 
         // Overnight renders must survive the Mac idling: without this, the
         // system can sleep mid-book and the wall clock silently balloons.
@@ -136,6 +172,9 @@ struct NarrateCommand: AsyncParsableCommand {
                 audioSeconds: result.durationSeconds, wallSeconds: wall)
             print(
                 "DONE \(result.outM4BURL.path) — \(result.chapters) chapters, \(summary)")
+            if let cache = result.synthesisCache {
+                print(Self.cacheSummary(cache))
+            }
             switch result.pronunciationReview {
             case .generated(let auditURL, let reelURL):
                 print(
@@ -148,10 +187,30 @@ struct NarrateCommand: AsyncParsableCommand {
                 break
             }
         } else {
+            if let cache = result.synthesisCache {
+                print(Self.cacheSummary(cache))
+            }
             print(
                 "PARTIAL - \(result.capturedThisRun) captured this run out of \(result.chapters) total chapters in \(Int(wall.rounded()))s; re-run with --resume to continue"
             )
             throw ExitCode(2)
         }
+    }
+
+    /// SHA-256 of this executable. Synthesis-cache keys include it, so audio
+    /// cached by one renderer build is never replayed by another.
+    static func rendererBuildDigest() throws -> String {
+        guard let executable = Bundle.main.executableURL else {
+            throw ValidationError("Cannot locate the echo-cli executable to fingerprint it.")
+        }
+        return try NarrationSynthesisCache.fileSHA256(at: executable.resolvingSymlinksInPath())
+    }
+
+    static func cacheSummary(_ stats: NarrationSynthesisCacheStats) -> String {
+        "SYNTHESIS_CACHE \(stats.hits) reused, \(stats.misses) synthesized"
+            + (stats.rejectedNotStored > 0
+                ? ", \(stats.rejectedNotStored) rejected by the quality check and not stored" : "")
+            + (stats.writeFailures > 0 ? ", \(stats.writeFailures) not stored" : "")
+            + (stats.pruned.map { ", \($0) unused entries pruned" } ?? "")
     }
 }

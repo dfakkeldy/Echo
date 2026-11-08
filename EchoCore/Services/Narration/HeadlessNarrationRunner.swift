@@ -65,6 +65,13 @@ struct NarrationRunConfig {
     /// Direct CLI fresh runs clear prior chapter markers/audio after acquiring
     /// the runner-owned cross-process lease. Library callers resume by default.
     var clearExistingCapturesBeforeRun: Bool = false
+    /// Optional book-stable synthesis cache. When set, every engine call whose
+    /// frozen synthesis plan, voice, voice resources and renderer build match a
+    /// stored entry replays that audio instead of synthesizing, so an edited
+    /// book re-synthesizes only the chunks whose inputs changed. Keep the
+    /// directory outside `workDir` when the caller uses a new work directory
+    /// per source revision.
+    var synthesisCache: NarrationSynthesisCacheConfig? = nil
 }
 
 // MARK: - Progress
@@ -103,6 +110,8 @@ struct NarrationRunResult {
     /// Pronunciation acceptance artifacts generated from the exact render
     /// captures. Defaults to pending for source compatibility and partial runs.
     var pronunciationReview: PronunciationReviewOutcome = .pending
+    /// Synthesis-cache hits and misses this run; nil when no cache was used.
+    var synthesisCache: NarrationSynthesisCacheStats? = nil
 }
 
 // MARK: - Runner
@@ -1349,20 +1358,7 @@ struct NarrationRunResult {
             },
         progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
-        if config.voicePlanURL != nil {
-            try Self.validateVoicePlanEPUBURL(config.epubURL)
-        }
-        let source = try resolveNarrationSource(at: config.epubURL)
-        if config.voicePlanURL != nil {
-            guard case .epubFile = source else {
-                throw NarrationRunError.voicePlan(
-                    "--voice-plan requires an EPUB file, not a PDF or directory source")
-            }
-            guard config.chapterVoicesByDisplayNumber.isEmpty else {
-                throw NarrationRunError.voicePlan(
-                    "--voice-plan cannot be combined with --chapter-voice")
-            }
-        }
+        let source = try validatedSource(for: config)
         let runLease = try Self.acquireRunLease(for: config)
         defer { withExtendedLifetime(runLease) {} }
         let fm = FileManager.default
@@ -1413,40 +1409,8 @@ struct NarrationRunResult {
         let plannedByChapterIndex = Dictionary(
             uniqueKeysWithValues: plannedChapters.map { ($0.index, $0) })
         let chapterIndices = plannedChapters.map(\.index)
-        let voiceByChapterIndex: [Int: VoiceID]
-        let resolvedVoicePlan: ResolvedBlockVoicePlan?
-        if let voicePlanURL = config.voicePlanURL {
-            guard case .epubFile(let epubURL) = source else {
-                throw NarrationRunError.voicePlan("--voice-plan requires an EPUB file")
-            }
-            let document: BlockVoicePlanDocument
-            do {
-                document = try BlockVoicePlanLoader.decode(data: Data(contentsOf: voicePlanURL))
-                let plan = try BlockVoicePlanLoader.resolve(
-                    document: document,
-                    sourceEPUBSHA256: try Self.fileSHA256(at: epubURL),
-                    chapters: plannedChapters)
-                try Self.validateVoiceResources(plan)
-                if let explicitVoice = config.voice, explicitVoice != plan.defaultVoice {
-                    throw NarrationRunError.voicePlan(
-                        "--voice \(explicitVoice.rawValue) conflicts with plan default \(plan.defaultVoice.rawValue)"
-                    )
-                }
-                resolvedVoicePlan = plan
-                voiceByChapterIndex = Dictionary(
-                    uniqueKeysWithValues: plannedChapters.map { ($0.index, plan.defaultVoice) })
-            } catch let error as NarrationRunError {
-                throw error
-            } catch {
-                throw NarrationRunError.voicePlan(error.localizedDescription)
-            }
-        } else {
-            resolvedVoicePlan = nil
-            voiceByChapterIndex = try Self.resolvedChapterVoices(
-                defaultVoice: Self.legacyDefaultVoice(for: config),
-                overridesByDisplayNumber: config.chapterVoicesByDisplayNumber,
-                plannedChapters: plannedChapters)
-        }
+        let (voiceByChapterIndex, resolvedVoicePlan) = try Self.resolveVoices(
+            config: config, source: source, plannedChapters: plannedChapters)
 
         // Validate the full chapter-voice plan before a fresh run removes any
         // resumable captures or accepted final artifacts.
@@ -1622,7 +1586,44 @@ struct NarrationRunResult {
             }
         }
 
-        let engines = batch.isEmpty ? [] : (0..<workers).map { _ in makeEngine() }
+        let synthesisCacheContext = config.synthesisCache.map {
+            NarrationSynthesisCacheContext(
+                rendererBuildDigest: $0.rendererBuildDigest,
+                includesWordTimings: config.includeWordTimings)
+        }
+        let synthesisCacheStore = config.synthesisCache.map {
+            NarrationSynthesisCacheStore(rootURL: $0.directoryURL)
+        }
+        let cachingEngines: [CachingTTSEngine]
+        let engines: [TTSEngine]
+        if batch.isEmpty {
+            cachingEngines = []
+            engines = []
+        } else if let synthesisCacheStore, let synthesisCacheContext {
+            cachingEngines = (0..<workers).map { _ in
+                CachingTTSEngine(
+                    base: makeEngine(), store: synthesisCacheStore,
+                    context: synthesisCacheContext)
+            }
+            engines = cachingEngines
+        } else {
+            cachingEngines = []
+            engines = (0..<workers).map { _ in makeEngine() }
+        }
+        var prunedSynthesisEntries: Int?
+        let synthesisCacheStats: () -> NarrationSynthesisCacheStats? = {
+            guard config.synthesisCache != nil else { return nil }
+            var total = cachingEngines.reduce(into: NarrationSynthesisCacheStats()) {
+                total, engine in
+                let stats = engine.stats
+                total.hits += stats.hits
+                total.misses += stats.misses
+                total.writeFailures += stats.writeFailures
+                total.rejectedNotStored += stats.rejectedNotStored
+            }
+            total.pruned = prunedSynthesisEntries
+            return total
+        }
         if let first = engines.first {
             let firstChapterBlockIDs = Set(
                 batch.first.flatMap {
@@ -1803,7 +1804,23 @@ struct NarrationRunResult {
                 chapters: totalCount,
                 durationSeconds: 0,
                 capturedThisRun: batch.count,
-                complete: false)
+                complete: false,
+                synthesisCache: synthesisCacheStats())
+        }
+
+        // Prune only when this process rendered every chapter: then the engines
+        // saw every engine call of the finished book. A book completed across
+        // several --resume batches has no single process that saw all keys.
+        // The cache must also belong to this book (title and author), so a
+        // directory shared with another book is never pruned.
+        if config.synthesisCache?.pruneUnused == true, let synthesisCacheStore,
+            batch.count == totalCount, totalCount > 0,
+            synthesisCacheStore.claim(
+                bookIdentity: "title=\(config.title)\nauthor=\(config.author)\n")
+        {
+            let used = cachingEngines.reduce(into: Set<String>()) { $0.formUnion($1.usedKeys) }
+            // Housekeeping must never fail a finished render; nil reports it.
+            prunedSynthesisEntries = try? synthesisCacheStore.prune(keeping: used)
         }
 
         // 6. Export the chaptered .m4b.
@@ -1949,7 +1966,190 @@ struct NarrationRunResult {
             durationSeconds: totalDuration,
             capturedThisRun: batch.count,
             complete: true,
-            pronunciationReview: pronunciationReview)
+            pronunciationReview: pronunciationReview,
+            synthesisCache: synthesisCacheStats())
+    }
+
+    /// Resolves the narration source and rejects voice-option combinations a
+    /// render would refuse, for both `run` and `preview`.
+    private func validatedSource(for config: NarrationRunConfig) throws -> SourceKind {
+        if config.voicePlanURL != nil {
+            try Self.validateVoicePlanEPUBURL(config.epubURL)
+        }
+        let source = try resolveNarrationSource(at: config.epubURL)
+        if config.voicePlanURL != nil {
+            guard case .epubFile = source else {
+                throw NarrationRunError.voicePlan(
+                    "--voice-plan requires an EPUB file, not a PDF or directory source")
+            }
+            guard config.chapterVoicesByDisplayNumber.isEmpty else {
+                throw NarrationRunError.voicePlan(
+                    "--voice-plan cannot be combined with --chapter-voice")
+            }
+        }
+        return source
+    }
+
+    /// Resolves the per-chapter voices and the optional source-bound block
+    /// voice plan exactly once, for both rendering and dry-run previews.
+    private static func resolveVoices(
+        config: NarrationRunConfig,
+        source: SourceKind,
+        plannedChapters: [NarrationChapterPlanner.PlannedChapter]
+    ) throws -> (voiceByChapterIndex: [Int: VoiceID], resolvedVoicePlan: ResolvedBlockVoicePlan?) {
+        let voiceByChapterIndex: [Int: VoiceID]
+        let resolvedVoicePlan: ResolvedBlockVoicePlan?
+        if let voicePlanURL = config.voicePlanURL {
+            guard case .epubFile(let epubURL) = source else {
+                throw NarrationRunError.voicePlan("--voice-plan requires an EPUB file")
+            }
+            let document: BlockVoicePlanDocument
+            do {
+                document = try BlockVoicePlanLoader.decode(data: Data(contentsOf: voicePlanURL))
+                let plan = try BlockVoicePlanLoader.resolve(
+                    document: document,
+                    sourceEPUBSHA256: try Self.fileSHA256(at: epubURL),
+                    chapters: plannedChapters)
+                try Self.validateVoiceResources(plan)
+                if let explicitVoice = config.voice, explicitVoice != plan.defaultVoice {
+                    throw NarrationRunError.voicePlan(
+                        "--voice \(explicitVoice.rawValue) conflicts with plan default \(plan.defaultVoice.rawValue)"
+                    )
+                }
+                resolvedVoicePlan = plan
+                voiceByChapterIndex = Dictionary(
+                    uniqueKeysWithValues: plannedChapters.map { ($0.index, plan.defaultVoice) })
+            } catch let error as NarrationRunError {
+                throw error
+            } catch {
+                throw NarrationRunError.voicePlan(error.localizedDescription)
+            }
+        } else {
+            resolvedVoicePlan = nil
+            voiceByChapterIndex = try Self.resolvedChapterVoices(
+                defaultVoice: Self.legacyDefaultVoice(for: config),
+                overridesByDisplayNumber: config.chapterVoicesByDisplayNumber,
+                plannedChapters: plannedChapters)
+        }
+        return (voiceByChapterIndex, resolvedVoicePlan)
+    }
+
+    // MARK: Dry run
+
+    /// Engine for planning-only previews. Planning never synthesizes; reaching
+    /// this engine would be a bug, so it fails loudly.
+    private nonisolated final class PlanningOnlyEngine: TTSEngine {
+        func prepare() async throws {}
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            throw NarrationError.engineUnavailable
+        }
+    }
+
+    /// Plans the whole book exactly as `run` would and reports, per speakable
+    /// block, how many of its engine calls are already in the synthesis cache.
+    /// Reads the source and the cache only: it takes no run lease, writes no
+    /// work-directory file and loads no voice model, so it is safe to run while
+    /// another render owns the renderer.
+    func preview(
+        _ config: NarrationRunConfig,
+        neuralEvaluator: NeuralEvaluator? = { word in
+            try await MiniBARTG2PEngine.shared.evaluate(word: word)
+        },
+        pronunciationPackLoader: @escaping @Sendable () async -> EnglishPronunciationPack = {
+            await EnglishPronunciationPack.bundledOrEmpty()
+        },
+        pronunciationAuditPackLoader:
+            @escaping @Sendable () async -> EnglishPronunciationAuditPack = {
+                await EnglishPronunciationAuditPack.bundledOrEmpty()
+            }
+    ) async throws -> NarrationRerenderPreview {
+        let source = try validatedSource(for: config)
+        let pronunciationPack = await pronunciationPackLoader()
+        let pronunciationAuditPack = await pronunciationAuditPackLoader()
+        let sourceURL = source.sourceURL
+        let stem = config.outM4BURL.deletingPathExtension().lastPathComponent
+        let audiobookID = "runner-\(stem)-\(sourceURL.lastPathComponent)"
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(
+                sql:
+                    "INSERT OR IGNORE INTO audiobook (id, title, duration, added_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')",
+                arguments: [audiobookID, config.title])
+        }
+        let blocks = try await importBlocks(source: source, into: db, audiobookID: audiobookID)
+        guard !blocks.isEmpty else {
+            throw NarrationRunError.noBlocksImported(sourceURL.lastPathComponent)
+        }
+        let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
+        let (voiceByChapterIndex, resolvedVoicePlan) = try Self.resolveVoices(
+            config: config, source: source, plannedChapters: plannedChapters)
+        let overrides = PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+        let occurrenceOverrides =
+            PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
+        let svc = NarrationService(
+            db: db.writer, audiobookID: audiobookID, tts: PlanningOnlyEngine(),
+            audioWriter: AVFoundationAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory, state: NarrationState(),
+            pronunciationOverrides: { overrides },
+            pronunciationOccurrenceOverrides: { occurrenceOverrides },
+            pronunciationPack: pronunciationPack,
+            pronunciationAuditPack: pronunciationAuditPack,
+            contextualPronunciationEvaluator:
+                FoundationModelsContextualPronunciationEvaluator.notRequestedEvaluator(),
+            neuralEvaluator: neuralEvaluator,
+            fmEnabled: { config.enableFMNormalization })
+        let store = config.synthesisCache.map {
+            NarrationSynthesisCacheStore(rootURL: $0.directoryURL)
+        }
+        let context = NarrationSynthesisCacheContext(
+            rendererBuildDigest: config.synthesisCache?.rendererBuildDigest ?? "none",
+            includesWordTimings: config.includeWordTimings)
+        var resourceDigests: [VoiceID: String] = [:]
+        func resourceDigest(for voice: VoiceID) -> String {
+            if let known = resourceDigests[voice] { return known }
+            let digest = NarrationSynthesisCache.resourceDigest(
+                for: voice, includesWordTimings: config.includeWordTimings)
+            resourceDigests[voice] = digest
+            return digest
+        }
+
+        var previewBlocks: [NarrationRerenderPreview.Block] = []
+        for chapter in plannedChapters {
+            let chapterVoice =
+                voiceByChapterIndex[chapter.index] ?? Self.legacyDefaultVoice(for: config)
+            let blockVoice: @Sendable (String) -> VoiceID
+            if let resolvedVoicePlan {
+                blockVoice = {
+                    resolvedVoicePlan.voice(forBlockID: AlignmentSidecar.portableSuffix(of: $0))
+                }
+            } else {
+                blockVoice = { _ in chapterVoice }
+            }
+            let planned = try await svc.synthesisPreview(
+                blocks: chapter.blocks, voice: chapterVoice, blockVoice: blockVoice)
+            for block in planned {
+                let digest = resourceDigest(for: block.voice)
+                let cached =
+                    store.map { store in
+                        block.chunks.filter {
+                            store.containsValidEntry(
+                                key: NarrationSynthesisCache.key(
+                                    for: $0, voice: block.voice, context: context,
+                                    resourceDigest: digest))
+                        }.count
+                    } ?? 0
+                previewBlocks.append(
+                    NarrationRerenderPreview.Block(
+                        chapterIndex: chapter.index,
+                        chapterDisplayNumber: chapter.displayNumber,
+                        blockID: AlignmentSidecar.portableSuffix(of: block.blockID),
+                        voice: block.voice,
+                        text: block.displayText,
+                        chunkCount: block.chunks.count,
+                        cachedChunkCount: cached))
+            }
+        }
+        return NarrationRerenderPreview(blocks: previewBlocks)
     }
 
     private func importBlocks(

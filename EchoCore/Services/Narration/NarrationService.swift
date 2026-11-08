@@ -921,22 +921,13 @@ final class NarrationService {
         fmEnabled: Bool,
         onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)?
     ) async throws -> RenderedNarrationFile {
-        // Resolve once per original block, then freeze the choice for planning,
-        // synthesis and receipts. Do not query a voice plan for image-only blocks.
-        let blockVoices = Dictionary(
-            uniqueKeysWithValues: blocks.filter {
-                BlockVoicePlanLoader.isSpeakable($0)
-            }.map { ($0.id, blockVoice($0.id)) })
-        let resolvedVoice: @Sendable (String) -> VoiceID = { blockVoices[$0] ?? voice }
-        let plan = try await renderPlan(
-            for: blocks,
+        let (plan, resolvedVoice) = try await voicedRenderPlan(
+            blocks: blocks,
+            voice: voice,
+            blockVoice: blockVoice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            fmEnabled: fmEnabled,
-            textOnlyBlockIDs: Set(
-                blocks.filter {
-                    VoiceCatalog.phononName(for: resolvedVoice($0.id)) != nil
-                }.map(\.id)))
+            fmEnabled: fmEnabled)
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
         let renderStartedAt = Date()
@@ -1187,6 +1178,68 @@ final class NarrationService {
             pronunciationAuditDiagnostics: pronunciationAuditDiagnostics.filter {
                 VoiceCatalog.phononName(for: resolvedVoice($0.blockID)) == nil
             })
+    }
+
+    /// The exact plan and per-block voices `renderNarrationFile` synthesizes.
+    /// Shared with `synthesisPreview` so a dry run predicts the same engine
+    /// calls a render would make.
+    private func voicedRenderPlan(
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        blockVoice: @escaping @Sendable (String) -> VoiceID,
+        overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
+        fmEnabled: Bool
+    ) async throws -> (NarrationRenderPlan, @Sendable (String) -> VoiceID) {
+        // Resolve once per original block, then freeze the choice for planning,
+        // synthesis and receipts. Do not query a voice plan for image-only blocks.
+        let blockVoices = Dictionary(
+            uniqueKeysWithValues: blocks.filter {
+                BlockVoicePlanLoader.isSpeakable($0)
+            }.map { ($0.id, blockVoice($0.id)) })
+        let resolvedVoice: @Sendable (String) -> VoiceID = { blockVoices[$0] ?? voice }
+        let plan = try await renderPlan(
+            for: blocks,
+            overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
+            fmEnabled: fmEnabled,
+            textOnlyBlockIDs: Set(
+                blocks.filter {
+                    VoiceCatalog.phononName(for: resolvedVoice($0.id)) != nil
+                }.map(\.id)))
+        return (plan, resolvedVoice)
+    }
+
+    /// One planned block as a render would synthesize it, without synthesis.
+    struct PlannedBlockSynthesis: Sendable {
+        let blockID: String
+        let voice: VoiceID
+        let displayText: String
+        let chunks: [PlannedSynthesisChunk]
+    }
+
+    /// Plans a chapter exactly as `renderChapter` would and returns the first
+    /// engine call for every speakable block. Quality-retry slices happen only
+    /// after synthesis, so they are not predicted here.
+    func synthesisPreview(
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        blockVoice: @escaping @Sendable (String) -> VoiceID
+    ) async throws -> [PlannedBlockSynthesis] {
+        let (plan, resolvedVoice) = try await voicedRenderPlan(
+            blocks: blocks,
+            voice: voice,
+            blockVoice: blockVoice,
+            overrides: pronunciationOverrides(),
+            occurrenceOverrides: pronunciationOccurrenceOverrides(),
+            fmEnabled: fmEnabled)
+        return plan.blocks.filter(\.isSpeakable).map { planned in
+            PlannedBlockSynthesis(
+                blockID: planned.blockID,
+                voice: resolvedVoice(planned.blockID),
+                displayText: planned.synthesisChunks.map(\.displayText).joined(separator: " "),
+                chunks: planned.synthesisChunks)
+        }
     }
 
     func renderPlan(
