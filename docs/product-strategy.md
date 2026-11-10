@@ -1,3 +1,5 @@
+> Historical strategy proposal. This document is not a current availability guide. See the [current roadmap status](../ROADMAP.md), [manual](guides/user-manual.md), and [v1.1 proposal](superpowers/plans/2026-10-30-echo-v1-1-streamlined.md). The original launch scope below includes unfinished goals and features since implemented.
+
 # Echo Product Strategy: V1 Scope & Aha! Moment
 
 This document outlines the product scope boundaries for **Echo 1.0** and defines the core user experience milestones that validate the app's value proposition.

@@ -41,6 +41,6 @@ A missing, malformed, or mismatched sidecar is logged and skipped; ordinary PDF 
 
 ## Import and revision
 
-Export the PDF first, measure its final layout, generate the sidecar, and add the hash last. Keep both files together. Reimport after changes so the stored blocks and `pdf_block_page.word_boxes` refresh; opening a previously imported book does not by itself replace stored mappings.
+Export the PDF first, measure its final layout, generate the sidecar, and add the hash last. Keep both files together. Reimport after changes so the stored blocks and `pdf_block_page.word_boxes` refresh; opening a previously imported book does not generally replace existing authored mappings. Exception: the current importer repairs a PDF with page rows but no word boxes when a matching read-along file becomes available. It requests iCloud downloads for candidate sidecars before decoding them (up to 30 seconds per file). Reimport to replace an already authored mapping after edits.
 
 The sidecar carries **text order and page geometry**, not measured audio timing or pronunciation instructions. Narration/alignment supply timing separately. See [the manual](guides/user-manual.md#13-pdf-companion-documents) and [EPUB IPA/PLS authoring](epub-pronunciation-authoring.md) for those workflows.

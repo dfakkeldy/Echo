@@ -1,14 +1,15 @@
 # Echo: Audiobook Study Player — Roadmap
 
-<!-- Source status reviewed: 2026-10-24. Dated design/research sections retain their original context. -->
+<!-- Source status reviewed: 2026-11-10. Dated design/research sections retain their original context. -->
 
 ---
 
-## Current source status — October 24, 2026
+## Current source status — November 10, 2026
 
 This is a plan for unfinished work, not a release announcement. The [manual](docs/guides/user-manual.md) is the reference for usable workflows and platform differences.
 
 - **Implemented:** local playback/read-along, Card Inbox/decks/editor, FSRS, chapter Study Plans, phone Insights, bookmark Context Memory, optional soundscapes, local notes, Watch Inbox, Audiobookshelf on phone/Mac, document narration including Mac PDFs, article/anthology capture with its own private CloudKit sync, and export tools.
+- **Recent Nightly changes:** continuous reader presentation, refreshed iPhone controls, fresh published Siri/Watch playback positions, and opt-in CLI synthesis caching for edited books. Source merges do not establish distribution.
 - **Newer source:** optional arm64 Phonon narration, EPUB IPA/PLS authoring, listened-books shelf on phone, separate Visual Listening figures/subtitles, and authored PDF read-along word boxes (V44).
 - **Still incomplete:** general private-iCloud study-state sync, some hands-free Chapter Study interactions, full Mac study/Insights parity, unified Brain Dump promotion, direct phone Anki-archive import UI, Audiobookshelf streaming/background-transfer resumability, and the remaining release gates.
 - **Proposed next program:** the [Echo v1.1 plan](docs/superpowers/plans/2026-10-30-echo-v1-1-streamlined.md) (simpler UI, performance budgets, hardened workflows) tags each item as a 1.0.x patch fix for the shipped 1.0 or as 1.1. It is a proposal: these Wedge 2/3 lines change only when the owner ratifies it.
@@ -92,7 +93,7 @@ Competitors give slow, unhelpful support → **Echo is responsive and open.** In
 
 ### Platform parity — macOS is a full peer in 1.0
 
-**Shipped as one universal app** — the macOS target now shares the iOS bundle id (`com.echo.audiobooks`), so Echo is a **single App Store record (buy once → iPhone + Mac)** rather than a separate Mac app (PR #115). **Already built on Mac:** player, local Library sidebar, reader + karaoke, on-device alignment, Audiobookshelf browse/import/progress sync, Anki export, Card Inbox, Daily Review, PDF reader, Narration QA, and the **batch pipeline** (`MacBatchProcessingService` / `MacBatchQueueView`: import → transcribe → align → word-timings + overnight Narrate-EPUBs) — so **batch transcribe/align/narrate is largely shipped** (1.0 = complete + harden). **Parity gap 1.0 closes:** deeper Mac study-layer polish (Chapter-Study review ergonomics, decks/editor parity, deep Insights, Context Memory) plus applying the persisted custom font/theme (§A.1 follow-up). **Excluded** (platform-inherent, not gaps): watch review, CarPlay, camera bookmarks (Mac uses the photo library / files). macOS build specifics (sandbox, notarization, menus, AppKit bridging) → handled with `axiom-macos` at build time.
+**Shipped as one universal app** — the macOS target now shares the iOS bundle id (`com.echo.audiobooks`), so Echo is a **single App Store record (buy once → iPhone + Mac)** rather than a separate Mac app (PR #115). **Already built on Mac:** player, local Library sidebar, reader + karaoke, on-device alignment, Audiobookshelf browse/import/progress sync, Anki export, Card Inbox, Daily Review, PDF reader, Narration QA, and the **batch pipeline** (`MacBatchProcessingService` / `MacBatchQueueView`: import → transcribe → align → word-timings + overnight Narrate-EPUBs) — so **batch transcribe/align/narrate is largely shipped** (1.0 = complete + harden). **Unfinished parity follow-up:** deeper Mac study-layer polish (Chapter-Study review ergonomics, decks/editor parity, deep Insights, Context Memory) plus applying the persisted custom font/theme (§A.1 follow-up). **Excluded** (platform-inherent, not gaps): watch review, CarPlay, camera bookmarks (Mac uses the photo library / files). macOS build specifics (sandbox, notarization, menus, AppKit bridging) → handled with `axiom-macos` at build time.
 
 ### The 1.0 launch gate — ship when ALL are green
 

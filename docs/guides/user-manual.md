@@ -2,7 +2,7 @@
 
 The reference for Echo on iPhone, iPad, Apple Watch, and Mac.
 
-**Updated October 24, 2026.** This guide describes the latest beta. If something looks different, check your build's What to Test notes. Planned work is labelled explicitly. Start with [the learning guide](getting-the-most-out-of-echo.md) for the thinking behind the study tools.
+**Updated November 10, 2026.** This guide describes current Nightly source. If something looks different, check your build's What to Test notes. Planned work is labelled explicitly. Start with [the learning guide](getting-the-most-out-of-echo.md) for the thinking behind the study tools.
 
 ## Contents
 
@@ -153,7 +153,7 @@ Watch Inbox is separate from local book notes. The older proposed unified “Bra
 
 ## 11. The Reader: EPUB
 
-Import a standalone EPUB or place it beside the audiobook. The reader preserves paragraphs, headings, images, links, inline formatting, and code blocks.
+Import a standalone EPUB or place it beside the audiobook. The reader preserves paragraphs, headings, images, links, inline formatting, and code blocks. Current Nightly presents them as one continuous page on iPhone/iPad and Mac. Paragraph actions remain available through long-press and accessibility actions.
 
 - Follow the highlighted paragraph and word while audio plays; scroll away to browse and return to live reading.
 - Tap aligned text to seek. Search phrases and use the table of contents to navigate.
@@ -162,6 +162,8 @@ Import a standalone EPUB or place it beside the audiobook. The reader preserves 
 - Use the inline speed presets and bottom dock without leaving Read & Study.
 
 **Visual Listening** brings figures and code onto the player stage with read-along text in its own scrolling area. A figure stays until the next figure, or chapter end; consecutive figures share available time in reading order. Timing depends on the book's alignment.
+
+For headless document rendering, the optional [incremental synthesis cache](../incremental-narration.md) reuses unchanged chunks after source edits. This is a CLI workflow; it still rebuilds output audio, receipts and sidecars. It is separate from app chapter repair.
 
 ## 12. Audio–Text Alignment
 

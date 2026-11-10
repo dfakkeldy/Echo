@@ -7,45 +7,35 @@ The source is public: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/E
 ---
 
 <!-- AUTO-DEVLOG:START -->
-## Automated update - Aug 24-Oct 24, 2026
+## Automated update - Oct 24-Nov 10, 2026
 
-*Generated from 80 commits merged during the week.*
+*Generated from 21 commits merged in this date range.*
 
 ### Shipped
-- Keep figures on stage until the next figure ([604464f](https://github.com/dfakkeldy/Echo/commit/604464f))
-- Add optional Phonon 31M narration (#650) ([6c9c637](https://github.com/dfakkeldy/Echo/commit/6c9c637))
-- Dictate into an inbox with background webhook delivery (#644) ([40af462](https://github.com/dfakkeldy/Echo/commit/40af462))
-- Preserve EPUB pronunciation instructions through synthesis ([785394a](https://github.com/dfakkeldy/Echo/commit/785394a))
-- Improve contextual preparation and render efficiency ([a611675](https://github.com/dfakkeldy/Echo/commit/a611675))
+- Re-render only the edited blocks of a narrated book (#683) ([d4e182d](https://github.com/dfakkeldy/Echo/commit/d4e182d))
 
 ### Fixed
-- Report inline pronunciation errors and respect filename boundaries (#649) ([7451a28](https://github.com/dfakkeldy/Echo/commit/7451a28))
-- Recover Inbox retries and attach the book title (#647) ([0819b02](https://github.com/dfakkeldy/Echo/commit/0819b02))
-- Present Inbox dictation from the active player (#646) ([aebe041](https://github.com/dfakkeldy/Echo/commit/aebe041))
-- Adapt EPUB stress positions for Kokoro (#642) ([a12077e](https://github.com/dfakkeldy/Echo/commit/a12077e))
-- Exclude pronunciation reels from folder books (#634) ([f60ca9d](https://github.com/dfakkeldy/Echo/commit/f60ca9d))
-- Retain GRDB import for book settings types ([53570e6](https://github.com/dfakkeldy/Echo/commit/53570e6))
-- Public alignment uploads are unavailable in 1.0; community lookup and local fallback remain unchanged. ([3c91823](https://github.com/dfakkeldy/Echo/commit/3c91823))
-- Confirm public alignment sharing before upload ([e2cafff](https://github.com/dfakkeldy/Echo/commit/e2cafff))
-- ...and 24 more fixed items.
-
-### Improved
-- Prepare pronunciation plans off the UI actor ([61a856e](https://github.com/dfakkeldy/Echo/commit/61a856e))
+- 1.0.1 — keep Siri and Watch positions fresh during playback (#670) (#672) ([bf69ae8](https://github.com/dfakkeldy/Echo/commit/bf69ae8))
+- Download an iCloud read-along file, and recover a PDF imported before it arrived ([bcb06db](https://github.com/dfakkeldy/Echo/commit/bcb06db))
 
 ### Build, docs, and housekeeping
-- Disclose Phonon model download from GitHub (#651) ([8d85927](https://github.com/dfakkeldy/Echo/commit/8d85927))
-- Watch Inbox queued-message recovery (#648) ([5b887f4](https://github.com/dfakkeldy/Echo/commit/5b887f4))
-- Add Watch Inbox to in-app help and TestFlight notes (#645) ([4b49ec4](https://github.com/dfakkeldy/Echo/commit/4b49ec4))
-- Note EPUB pronunciation stress fix (#642) (#643) ([3032a1c](https://github.com/dfakkeldy/Echo/commit/3032a1c))
-- Listened-books shelf in TestFlight guide and user manual (#641) ([8ae15ab](https://github.com/dfakkeldy/Echo/commit/8ae15ab))
-- Note Visual Listening picture and subtitle layout fix (#639) ([cb609a1](https://github.com/dfakkeldy/Echo/commit/cb609a1))
-- Agent work on GitHub (#636) ([45cdd0c](https://github.com/dfakkeldy/Echo/commit/45cdd0c))
-- Note pronunciation reel exclusion from folder books (#634) (#635) ([b6c8a52](https://github.com/dfakkeldy/Echo/commit/b6c8a52))
-- ...and 34 more housekeeping items.
+- Merge gate caller on main, where pull_request_target starts (#675) ([e429822](https://github.com/dfakkeldy/Echo/commit/e429822))
+- Merge gate, a required check that holds stop-list PRs for Dan (#674) ([0caf7ae](https://github.com/dfakkeldy/Echo/commit/0caf7ae))
+- Set nightly marketing version to 1.1 ([de27f43](https://github.com/dfakkeldy/Echo/commit/de27f43))
+- Add the verified 1.0.x patch route ([3b59d10](https://github.com/dfakkeldy/Echo/commit/3b59d10))
+- Reframe v1.1 tracks around the shipped App Store 1.0 ([2dab29c](https://github.com/dfakkeldy/Echo/commit/2dab29c))
+- Cite PR #664 instead of a branch-local commit ([242cfba](https://github.com/dfakkeldy/Echo/commit/242cfba))
+- Bound published, not delivered, Watch position freshness ([3984a73](https://github.com/dfakkeldy/Echo/commit/3984a73))
+- Fix shifted ROADMAP range ([bd476e8](https://github.com/dfakkeldy/Echo/commit/bd476e8))
+- ...and 9 more housekeeping items.
 
 <!-- AUTO-DEVLOG:END -->
 
-## October 24, 2026 — current source
+## November 10, 2026 — reader and playback updates
+
+Nightly now uses a continuous reader (#669), a simpler play button (#668), consistent chapter labels (#666), clearer player/Watch timer labels (#667), and refreshed iPhone screens (#673). Siri and Watch published positions stay fresh during playback (#670); delivery still depends on the receiving surface. These are source changes, not release receipts. The generated digest above groups conventional commit subjects and counts source commits, including back-merges.
+
+## October 24, 2026 — source snapshot
 
 Since the summer, the source has gained Audiobookshelf on Mac, PDF batch narration, article/anthology workflows, authored EPUB pronunciation, optional Phonon narration, and Watch Inbox dictation with queued-delivery recovery. The latest PDF read-along files carry narration order and exact word boxes; Visual Listening keeps figures visible while the full read-along text scrolls separately.
 
@@ -141,4 +131,4 @@ Nine working weeks. Three platforms (iPhone and iPad, Apple Watch, Mac) plus wid
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 
-*Last reviewed October 24, 2026. The generated digest covers merged source through this review.*
+*Last reviewed November 10, 2026. The generated digest covers merged source through this review.*
