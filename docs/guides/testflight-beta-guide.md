@@ -2,11 +2,11 @@
 
 Use Echo with a book you actually want to hear. This guide covers access, supported devices, useful feedback, and current source limitations.
 
-**Updated October 24, 2026.** Your build's **What to Test** notes describe what is new in that build.
+**Updated November 10, 2026.** Your build's **What to Test** notes describe what is new in that build.
 
 ## 1. Getting access
 
-Echo is in public beta on TestFlight. Install Apple's free TestFlight app, then open the invitation link on your device.
+TestFlight provides access to Echo beta builds. Install Apple's free TestFlight app, then open the invitation link on your device.
 
 **[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)**
 

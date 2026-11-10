@@ -267,3 +267,7 @@ It is **not** a security boundary against a malicious process. Any process alrea
 This installer is **local-only**: there is no code signing and no notarization anywhere in `Scripts/echo_renderer/`, and a published `echo-cli` never leaves the machine that built it — it lives under a per-user `~/Library/Application Support/` directory and is only ever read back by tooling running as that same user.
 
 If Echo ever needed to distribute a prebuilt renderer to *other* users' machines, that would require Apple Developer ID signing and notarization (and almost certainly a different distribution/trust model than "hash matches its own directory name"). That is explicitly **out of scope** for this installer as it exists today — nothing in this design should be read as a substitute for it.
+
+## Reusing synthesis after source edits
+
+Use a book-specific `--synthesis-cache DIR` to reuse unchanged chunks with the same renderer and resources. `--dry-run` previews cache misses without loading a model or writing outputs. A changed source still needs fresh receipts and verified output sidecars. See [incremental narration](../incremental-narration.md) for cache identity, pruning and storage costs.
