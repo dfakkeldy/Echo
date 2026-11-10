@@ -26,7 +26,7 @@ Open `http://localhost:8768/`. Check both a desktop width and a narrow phone wid
 
 Update both Markdown and HTML when changing a guide. Preserve existing public section fragments; the manual includes aliases for numbered Markdown headings as well as older short HTML fragments. Pandoc can assist with body conversion, but review relative links, heading IDs, tables, and the surrounding page shell before saving. Do not replace an author's historical claims with a new review date.
 
-The current guide pass was reviewed against Nightly source on October 24, 2026. An implemented service is not necessarily reachable UI. A source merge is not a TestFlight upload or App Store release. Describe optional network transfers by feature; local inference does not mean the entire app is offline. Use the manual's platform/sync boundaries when writing summaries.
+The current guide pass was reviewed against Nightly source on November 10, 2026. Historical plans, audits and qualification reports retain their original dates and are not current availability guides. An implemented service is not necessarily reachable UI. A source merge is not a TestFlight upload or App Store release. Describe optional network transfers by feature; local inference does not mean the entire app is offline. Use the manual's platform/sync boundaries when writing summaries.
 
 ## Checks
 
@@ -40,7 +40,7 @@ The documentation contracts run without Xcode and protect Settings paths, remove
 
 ## Publication
 
-The GitHub Pages site currently builds from **`main` → `/docs`** (verified October 24, 2026). Ordinary feature/documentation PRs target **`nightly`**. Merging a Nightly docs change does not update the live site.
+The GitHub Pages site currently builds from **`main` → `/docs`** (verified November 10, 2026). Ordinary feature/documentation PRs target **`nightly`**. Merging a Nightly docs change does not update the live site.
 
 Website publication needs a separately authorized docs-only update to the publishing branch or the normal release promotion. Do not promote unrelated app code or change Pages settings just to publish docs. Verify the hosted page after publication; PR merge, Pages build, and live content are separate checks.
 

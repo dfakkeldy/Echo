@@ -69,7 +69,7 @@
           directing AI coding agents and refining the app through daily use.
         </p>
         <p class="doc-meta">
-          Reviewed October 24, 2026 · Commit digest plus the original April–June
+          Reviewed November 10, 2026 · Commit digest plus the original April–June
           account. “Shipped” below means merged source, not release
           distribution.
         </p>
@@ -78,49 +78,35 @@
       <div class="devlog-timeline">
             <!-- AUTO-DEVLOG:START -->
             <article class="week-entry automated-devlog">
-                <p class="week-meta">Automated · Aug 24-Oct 24, 2026 · 80 commits</p>
-                <h2>Source changes since the previous digest</h2>
+                <p class="week-meta">Automated · Oct 24-Nov 10, 2026 · 21 commits</p>
+                <h2>Source update: October 24–November 10</h2>
                 <h3>Shipped</h3>
                 <ul>
-                    <li>Keep figures on stage until the next figure <a href="https://github.com/dfakkeldy/Echo/commit/604464f" target="_blank" rel="noopener noreferrer">604464f</a></li>
-                    <li>Add optional Phonon 31M narration (#650) <a href="https://github.com/dfakkeldy/Echo/commit/6c9c637" target="_blank" rel="noopener noreferrer">6c9c637</a></li>
-                    <li>Dictate into an inbox with background webhook delivery (#644) <a href="https://github.com/dfakkeldy/Echo/commit/40af462" target="_blank" rel="noopener noreferrer">40af462</a></li>
-                    <li>Preserve EPUB pronunciation instructions through synthesis <a href="https://github.com/dfakkeldy/Echo/commit/785394a" target="_blank" rel="noopener noreferrer">785394a</a></li>
-                    <li>Improve contextual preparation and render efficiency <a href="https://github.com/dfakkeldy/Echo/commit/a611675" target="_blank" rel="noopener noreferrer">a611675</a></li>
+                    <li>Re-render only the edited blocks of a narrated book (#683) <a href="https://github.com/dfakkeldy/Echo/commit/d4e182d" target="_blank" rel="noopener noreferrer">d4e182d</a></li>
                 </ul>
                 <h3>Fixed</h3>
                 <ul>
-                    <li>Report inline pronunciation errors and respect filename boundaries (#649) <a href="https://github.com/dfakkeldy/Echo/commit/7451a28" target="_blank" rel="noopener noreferrer">7451a28</a></li>
-                    <li>Recover Inbox retries and attach the book title (#647) <a href="https://github.com/dfakkeldy/Echo/commit/0819b02" target="_blank" rel="noopener noreferrer">0819b02</a></li>
-                    <li>Present Inbox dictation from the active player (#646) <a href="https://github.com/dfakkeldy/Echo/commit/aebe041" target="_blank" rel="noopener noreferrer">aebe041</a></li>
-                    <li>Adapt EPUB stress positions for Kokoro (#642) <a href="https://github.com/dfakkeldy/Echo/commit/a12077e" target="_blank" rel="noopener noreferrer">a12077e</a></li>
-                    <li>Exclude pronunciation reels from folder books (#634) <a href="https://github.com/dfakkeldy/Echo/commit/f60ca9d" target="_blank" rel="noopener noreferrer">f60ca9d</a></li>
-                    <li>Retain GRDB import for book settings types <a href="https://github.com/dfakkeldy/Echo/commit/53570e6" target="_blank" rel="noopener noreferrer">53570e6</a></li>
-                    <li>Public alignment uploads are unavailable in 1.0; community lookup and local fallback remain unchanged. <a href="https://github.com/dfakkeldy/Echo/commit/3c91823" target="_blank" rel="noopener noreferrer">3c91823</a></li>
-                    <li>Confirm public alignment sharing before upload <a href="https://github.com/dfakkeldy/Echo/commit/e2cafff" target="_blank" rel="noopener noreferrer">e2cafff</a></li>
-                    <li><em>...and 24 more fixed items.</em></li>
-                </ul>
-                <h3>Improved</h3>
-                <ul>
-                    <li>Prepare pronunciation plans off the UI actor <a href="https://github.com/dfakkeldy/Echo/commit/61a856e" target="_blank" rel="noopener noreferrer">61a856e</a></li>
+                    <li>1.0.1 — keep Siri and Watch positions fresh during playback (#670) (#672) <a href="https://github.com/dfakkeldy/Echo/commit/bf69ae8" target="_blank" rel="noopener noreferrer">bf69ae8</a></li>
+                    <li>Download an iCloud read-along file, and recover a PDF imported before it arrived <a href="https://github.com/dfakkeldy/Echo/commit/bcb06db" target="_blank" rel="noopener noreferrer">bcb06db</a></li>
                 </ul>
                 <h3>Build, docs, and housekeeping</h3>
                 <ul>
-                    <li>Disclose Phonon model download from GitHub (#651) <a href="https://github.com/dfakkeldy/Echo/commit/8d85927" target="_blank" rel="noopener noreferrer">8d85927</a></li>
-                    <li>Watch Inbox queued-message recovery (#648) <a href="https://github.com/dfakkeldy/Echo/commit/5b887f4" target="_blank" rel="noopener noreferrer">5b887f4</a></li>
-                    <li>Add Watch Inbox to in-app help and TestFlight notes (#645) <a href="https://github.com/dfakkeldy/Echo/commit/4b49ec4" target="_blank" rel="noopener noreferrer">4b49ec4</a></li>
-                    <li>Note EPUB pronunciation stress fix (#642) (#643) <a href="https://github.com/dfakkeldy/Echo/commit/3032a1c" target="_blank" rel="noopener noreferrer">3032a1c</a></li>
-                    <li>Listened-books shelf in TestFlight guide and user manual (#641) <a href="https://github.com/dfakkeldy/Echo/commit/8ae15ab" target="_blank" rel="noopener noreferrer">8ae15ab</a></li>
-                    <li>Note Visual Listening picture and subtitle layout fix (#639) <a href="https://github.com/dfakkeldy/Echo/commit/cb609a1" target="_blank" rel="noopener noreferrer">cb609a1</a></li>
-                    <li>Agent work on GitHub (#636) <a href="https://github.com/dfakkeldy/Echo/commit/45cdd0c" target="_blank" rel="noopener noreferrer">45cdd0c</a></li>
-                    <li>Note pronunciation reel exclusion from folder books (#634) (#635) <a href="https://github.com/dfakkeldy/Echo/commit/b6c8a52" target="_blank" rel="noopener noreferrer">b6c8a52</a></li>
-                    <li><em>...and 34 more housekeeping items.</em></li>
+                    <li>Merge gate caller on main, where pull_request_target starts (#675) <a href="https://github.com/dfakkeldy/Echo/commit/e429822" target="_blank" rel="noopener noreferrer">e429822</a></li>
+                    <li>Merge gate, a required check that holds stop-list PRs for Dan (#674) <a href="https://github.com/dfakkeldy/Echo/commit/0caf7ae" target="_blank" rel="noopener noreferrer">0caf7ae</a></li>
+                    <li>Set nightly marketing version to 1.1 <a href="https://github.com/dfakkeldy/Echo/commit/de27f43" target="_blank" rel="noopener noreferrer">de27f43</a></li>
+                    <li>Add the verified 1.0.x patch route <a href="https://github.com/dfakkeldy/Echo/commit/3b59d10" target="_blank" rel="noopener noreferrer">3b59d10</a></li>
+                    <li>Reframe v1.1 tracks around the shipped App Store 1.0 <a href="https://github.com/dfakkeldy/Echo/commit/2dab29c" target="_blank" rel="noopener noreferrer">2dab29c</a></li>
+                    <li>Cite PR #664 instead of a branch-local commit <a href="https://github.com/dfakkeldy/Echo/commit/242cfba" target="_blank" rel="noopener noreferrer">242cfba</a></li>
+                    <li>Bound published, not delivered, Watch position freshness <a href="https://github.com/dfakkeldy/Echo/commit/3984a73" target="_blank" rel="noopener noreferrer">3984a73</a></li>
+                    <li>Fix shifted ROADMAP range <a href="https://github.com/dfakkeldy/Echo/commit/bd476e8" target="_blank" rel="noopener noreferrer">bd476e8</a></li>
+                    <li><em>...and 9 more housekeeping items.</em></li>
                 </ul>
             </article>
             <!-- AUTO-DEVLOG:END -->
 
         <article class="week-entry">
-          <p class="week-meta">October 24, 2026 · current source</p>
+          <p>November 10 source update: continuous reader (#669), simpler play button (#668), consistent chapter labels (#666), clearer player/Watch timer labels (#667), refreshed iPhone screens (#673), and fresh published Siri/Watch positions (#670). Receiving surfaces still control delivery. The generated digest groups conventional commit subjects and counts source commits, including back-merges. These are source changes, not release receipts.</p>
+          <p class="week-meta">October 24, 2026 · source snapshot</p>
           <h2>Reading, narration, and capture keep moving.</h2>
           <p>
             Since the summer: Audiobookshelf on Mac, PDF batch narration,

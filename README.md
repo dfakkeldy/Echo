@@ -5,7 +5,7 @@
 [![CI](https://github.com/dfakkeldy/Echo/actions/workflows/ci.yml/badge.svg)](https://github.com/dfakkeldy/Echo/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-**[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)** · Echo is in public beta on TestFlight.
+**[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)** · TestFlight provides access to Echo beta builds.
 
 <p>
   <img src="docs/assets/screenshots/echo-player.webp" width="200" alt="Echo's iPhone player showing The Merchant of Venice, chapter 1, with playback controls">
@@ -15,7 +15,7 @@
 
 Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you turn useful passages into spaced-repetition study cards. It can also narrate text-only documents on-device. It runs on **iOS/iPadOS 18+, macOS 15+, and watchOS 11+**; Watch is a companion to the iPhone player.
 
-**Documentation updated October 24, 2026.** It describes the latest beta; check the What to Test notes for the build you install.
+**Documentation updated November 10, 2026.** It describes current Nightly source; check the What to Test notes for the build you install.
 
 ## Start here
 
@@ -35,6 +35,8 @@ Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you
 Echo began with interrupted audiobook listening: loop a difficult chapter, recover context after a pause, and save a thought without losing the passage. Dan directs AI coding agents to build and maintain the app, using it in daily life and refining what gets in the way.
 
 You can use it as an ordinary player. The reading and study tools are there when you need them.
+
+Source availability differs from installed builds. Use the release notes and TestFlight What to Test notes for your version.
 
 ## Current capabilities
 
@@ -94,6 +96,7 @@ Useful contributor references:
 - [EPUB pronunciation authoring](docs/epub-pronunciation-authoring.md)
 - [PDF read-along authoring](docs/pdf-readalong-authoring.md)
 - [Phonon narration](docs/phonon-narration.md)
+- [Incremental narration cache](docs/incremental-narration.md)
 - [Versioned renderer](docs/guides/versioned-echo-renderer.md)
 
 `Tools/transcription_generator.py` is a separate optional faster-whisper utility; the app's alignment uses WhisperKit. Its environment is documented in `Tools/requirements.txt` and its CLI help.

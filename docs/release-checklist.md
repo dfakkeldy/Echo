@@ -1,6 +1,6 @@
 # Echo App Store preparation checklist
 
-Re-checked: 2026-10-06. This is a preparation checklist, not a readiness receipt.
+Source checklist reviewed: 2026-11-10. This is a preparation checklist, not a readiness receipt.
 Store declarations, prices and agreements remain owner decisions. Track private
 audit results separately; keep contacts, tester identities, credentials and
 private book content out of this public repository.
@@ -8,10 +8,10 @@ private book content out of this public repository.
 ## Candidate and promotion gates
 
 - Record exact SHA and version/build for iOS with embedded Watch/widget and the
-  separately packaged Mac app. The checked-in `1.0` / build `9` is configuration;
-  `beta` overrides the build number at archive time. The editable iOS and Mac ASC
-  records are `1.0`; uploaded `0.6` (build `109`) is historical. No signed release
-  candidate is selected yet; record the actual future signed candidate separately.
+  separately packaged Mac app. Read version/build from the selected branch;
+  Nightly currently uses marketing version `1.1`. The `beta` lane assigns its
+  archive build number. Record current App Store Connect version, candidate,
+  processing and review state from live receipts; old uploads do not prove them.
 - Keep internal nightly → external weekly → main App Store promotion. Verify
   current branch protection and actual completed CI jobs at the selected head.
   A docs-only check can skip Xcode, and a green release run can omit Mac after a
@@ -60,8 +60,7 @@ private book content out of this public repository.
 - On iPhone/iPad, nightly offers only the non-consumable `com.echo.pro.unlock` for new
   purchase. `com.echo.pro.founders` is still recognized so prior Founders
   ownership and restore keep working, but it is not offered, and
-  `StoreAccessPolicy.paywallDisabled` is `false`. Weekly keeps the temporary
-  bypass until nightly is promoted. Verify the selected branch, reachable UI, live product
+  `StoreAccessPolicy.paywallDisabled` is `false`. Inspect the selected release branch for any paywall bypass. Verify the selected branch, reachable UI, live product
   states and commercial intent before describing Pro as purchasable. Source
   purchase/restore code is not a sandbox transaction receipt. Do not create
   subscriptions or enable charging from an older plan without authorization.
