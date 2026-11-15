@@ -17,7 +17,7 @@ The first run passed but all five phone files showed Settings. `dismissBlockingA
 
 The rerun produced distinct player, reader, settings and statistics screens. Each image was visually reviewed. Only narration setup (`01_Player`) and book settings (`05_Settings`) are retained under `fastlane/screenshots/en-US`, two per device. The narration screen correctly says the EPUB has no audiobook; it is not evidence of active audio playback. Accepted PNGs are RGB without alpha, with no clipped text or debug overlays. [Manifest and hashes](screenshots.json).
 
-Reader/Timeline were duplicate, mostly empty captures containing collapsed Front Matter, Colophon and Uncopyright. Statistics contained zero listening history. They are unsuitable marketing captures, even though the UI test passed. Representative rejected reader/statistics images for both devices are retained here as diagnostic evidence, outside the upload directory. The Gatsby EPUB contains nine chapter files; the captures alone do not prove whether chapter selection or reader loading caused the empty presentation. A populated reader capture remains a follow-up.
+Reader/Timeline were duplicate, mostly empty captures containing collapsed Front Matter, Colophon and Uncopyright. Statistics contained zero listening history. They are unsuitable marketing captures, even though the UI test passed. Representative rejected reader/statistics images for both devices are retained here as diagnostic evidence, outside the upload directory. The Gatsby EPUB contains nine chapter files; the captures alone do not prove whether chapter selection or reader loading caused the empty presentation. Populated reader captures were subsequently obtained in the MacBook follow-up below.
 
 The README and documentation landing page now use the accepted phone captures. The existing Watch image is explicitly labeled as an earlier release; Watch and Mac were not in this lane.
 
@@ -27,22 +27,22 @@ Apple builds were serialized for this task and gated against the dispatcher's ho
 
 No archive, signing, upload, account sign-in, purchase, TestFlight or Apple submission was performed. Physical Watch behavior, StoreKit purchase/restore, optional model downloads, remote services and the actual live App Store version remain owner checks.
 
-## Manual smoke blocker and remaining checks
+## Completed MacBook follow-up — November 15
 
-The requested manual T3 interaction pass could not run. Device discovery and opening this task's iPad succeeded, but the runner's first use can build XCTest support. Repeated dispatcher capacity checks remained unhealthy (swap peaked above 15 GB with this task's simulators running; after closing both, later checks still reported 8.1–8.5 GB against the 8 GB limit). No runner build or interaction was started while unhealthy. Other threads' devices and processes were left alone. Screenshot UI-test navigation is the only runtime interaction evidence in this handoff; it must not be reported as a manual smoke pass.
+Tested source: `ea9a8630ceaf5acf0e78b0bda35144bf166c89ab`, Xcode 27.2 (27B52), iOS 27.0. A fresh-context Astra review found that `openMenuItem` discarded its destination wait. It now requires the matching Settings/Stats navigation bar. The simulator build passed, and `EchoUITests/EchoScreenshots` passed separately on iPhone 17 Pro Max and iPad Pro 13-inch (M5): one test, zero failures on each. Documentation contracts, documentation automation and Fastlane checks also passed again.
 
-Before submission, on a healthy host:
+The manual T3 smoke pass covered Books → Listen → Read & Study, table of contents, chapter I, continuous-reader scrolling, reader settings (17 → 18 pt), the voice picker (Ava → Bella), and Watch Inbox settings. No narration, model download, webhook setup or message delivery was started. Voice selection is not evidence of successful audio generation or engine inference.
 
-1. Open a dedicated T3 device session and launch the candidate with the Gatsby fixture arguments used by `EchoScreenshots`.
-2. Select chapter I through the table of contents, expand text and scroll the continuous reader. Diagnose the collapsed/empty capture if actual chapter text is unavailable; preserve a screenshot of any failure.
-3. Exercise the Books shelf, reader controls and narration-engine selection. Inspect Watch Inbox settings without sending messages or configuring a real endpoint. Test model/audio behavior separately with approved media and downloads.
-4. Capture a populated reader on both Snapfile sizes and review it before adding it to the store set. Existing accepted setup/settings images do not demonstrate the new reader.
-5. Confirm the live App Store baseline (1.0 versus 1.0.1), reconcile the separate marketing site, and perform the owner-only submission checks in the release checklist.
+### Populated reader and remaining behavior
 
-The candidate is **not certified ready to submit** by this PR. No claim is made that the observed collapsed fixture is a confirmed production regression; its cause remains unresolved.
+The initial reader showed collapsed Front Matter, Colophon and Uncopyright. On the phone, choosing chapter I while Front Matter remained collapsed left the reader at Titlepage. Expanding Front Matter, then selecting I again revealed the chapter. On the iPad, expanding Front Matter before selecting I also revealed the chapter. Chapter text and scrolling work; this narrows the capture problem to collapsed state/navigation, but does not establish its implementation-level cause or fix it.
 
-## Landing follow-up — November 15, MacBook
+Visually inspected populated captures: [phone, 1320 × 2868](reader-phone.png) and [iPad, 2064 × 2752](reader-ipad.png). These are QA evidence outside the upload directory, not a replacement marketing set. The phone shows scrolled reading with its controls hidden; the iPad shows the continuous reader with controls visible. No private media was used.
 
-Fresh-context Astra review found that `openMenuItem` discarded the destination wait result. The helper now requires the matching navigation bar before accepting Settings or Stats captures. Documentation contracts/automation and Fastlane tests passed again.
+The fixture also produces a Folder Access Not Saved alert on relaunch; OK allows this session to continue. The fixture's Books shelf is empty even while Gatsby is selected. No signed-device persistence claim follows from this unsigned simulator fixture.
 
-The local simulator build did not reach compilation. Package resolution waited in SwiftPM's Keychain authorization lookup for public binary dependencies; that attempt was stopped. A retry with the per-command `-packageAuthorizationProvider netrc` option was refused by the build wrapper: free swap was 1,239 MB, below the 2,048 MB threshold. Only this task's simulator was shut down. A subsequent attempt was blocked because another Apple build was running. No safeguard was bypassed. The helper change, manual smoke pass and populated reader captures still need runtime verification on an admitted build.
+### Build safeguards
+
+The first local attempt stopped before compilation in a SwiftPM Keychain authorization lookup. A later admitted run with the per-command `-packageAuthorizationProvider netrc` option completed. Intervening attempts were deferred for low free swap or an occupied Apple build slot. All Apple builds/tests used the required wrapper; Dan approved the off-hours run and up to 15 GB of temporary output. The existing device-session runner handled subsequent UI commands. Only this task's devices were closed; its dedicated iPad simulator was removed.
+
+This completes the preparation checks, not submission certification. Release binary/baseline selection, signed-device checks and Apple submission remain Dan's steps. The separate marketing-site work remains listed in the PR; collapsed-state navigation remains a follow-up, not a production fix in this PR.
