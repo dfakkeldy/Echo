@@ -17,9 +17,8 @@
 //  PlayerModel.restoreLastSelectionIfPossible loads it). This test forces the
 //  bundled Standard Ebooks Great Gatsby EPUB so App Store captures remain stable
 //  even if a local `EchoScreenshotSample.m4b` exists — see fastlane/screenshots
-//  README. This test is deliberately defensive: every navigation step is
-//  guarded, so one missing screen doesn't stop later captures, but the test
-//  fails at the end if any expected category is absent.
+//  README. Navigation failures stop capture so a wrong screen cannot silently
+//  stand in for an expected category. Review the resulting images before use.
 //
 //  NAVIGATION NOTE: The app uses a custom bottom dock, not a standard TabView,
 //  and ships no accessibility identifiers, so we navigate by the accessibility
@@ -31,7 +30,7 @@ import XCTest
 nonisolated final class EchoScreenshots: XCTestCase {
 
     override func setUpWithError() throws {
-        continueAfterFailure = true // never abort the whole shoot on one missing screen
+        continueAfterFailure = false // Never label a failed navigation as a valid capture.
     }
 
     @MainActor
@@ -78,13 +77,14 @@ nonisolated final class EchoScreenshots: XCTestCase {
             timeout: 12)
         dismissBlockingAlerts(in: app)
         normalizeToListen(in: app)
+        XCTAssertTrue(app.buttons["Go to Read & Study"].isHittable, "Player must be visible before capture")
 
         // ① Now Playing — "Turn listening into learning."
         capture("01_Player")
 
         // ② Timeline — the current Read & Study feed replaced the old Timeline tab,
         // but the filename stays stable for App Store release tooling.
-        _ = navigate(to: "Read & Study", in: app)
+        XCTAssertTrue(navigate(to: "Read & Study", in: app), "Reader navigation failed")
         capture("02_Timeline")
 
         // ③ Reader — same current read surface, settled after the feed loads.
@@ -99,8 +99,9 @@ nonisolated final class EchoScreenshots: XCTestCase {
             timeout: 5)
         capture("03_Reader")
 
-        // ⑤ Settings — privacy / "all on-device" frame.
+        // ⑤ Settings — book preferences and appearance.
         let didOpenSettings = openMenuItem("Settings", from: app.buttons["More options"], in: app)
+        XCTAssertTrue(didOpenSettings, "Settings navigation failed")
         capture("05_Settings")
         if didOpenSettings {
             closePresentedSheet(in: app)
@@ -109,6 +110,7 @@ nonisolated final class EchoScreenshots: XCTestCase {
         // ④ Stats / study — the spaced-repetition surface. Captured after Settings
         // so a Stats presentation cannot block the release-critical Settings shot.
         let didOpenStats = openMenuItem("Stats", from: app.buttons["More options"], in: app)
+        XCTAssertTrue(didOpenStats, "Stats navigation failed")
         capture("04_Stats")
         if didOpenStats {
             closePresentedSheet(in: app)
@@ -198,7 +200,7 @@ nonisolated final class EchoScreenshots: XCTestCase {
 
     @MainActor
     private func dismissBlockingAlerts(in app: XCUIApplication) {
-        app.tap()
+        // A blind app.tap() can activate a control after an alert is gone.
         let alert = app.alerts.firstMatch
         guard alert.waitForExistence(timeout: 2) else { return }
         if alert.buttons["Continue Offline"].exists {
