@@ -15,7 +15,7 @@
 
 Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you turn useful passages into spaced-repetition study cards. It can also narrate text-only documents on-device. It runs on **iOS/iPadOS 18+, macOS 15+, and watchOS 11+**; Watch is a companion to the iPhone player.
 
-**Documentation updated November 10, 2026.** It describes current Nightly source; check the What to Test notes for the build you install.
+**Echo 1.1 candidate documentation, updated November 15, 2026.** Read the [changes since App Store 1.0](docs/releases/v1.1.md), including the release-baseline caveat. This describes Nightly source, not an announcement of Apple approval; check the notes for the build you install.
 
 ## Start here
 

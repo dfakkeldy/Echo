@@ -1,1 +1,1 @@
-Turn audiobooks into memory: word sync, highlight-to-flashcard study, Apple Watch review, and on-device narration for text-only books. No tracking.
+Listen, read and study your own books. Echo 1.1 adds a continuous reader, PDF read-along support and Watch Inbox for a webhook you configure.

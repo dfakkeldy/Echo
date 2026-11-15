@@ -1,1 +1,8 @@
+Echo 1.1 brings a continuous reader, clearer chapter labels and simpler iPhone controls.
 
+- Keep figures visible while reading in Visual Listening.
+- Use PDF read-along files for authored narration text and precise word highlighting.
+- Try optional Phonon 31M English narration on supported hardware. Kokoro remains the default.
+- Dictate to a configured HTTPS webhook with Watch Inbox, with optional book context and retries for messages waiting to send.
+- Find books you have started listening to on the iPhone and iPad Books shelf, with related editions grouped together.
+- Improved bookmark persistence, library scans, EPUB pronunciation handling and reader loading.

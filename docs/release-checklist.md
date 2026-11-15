@@ -1,5 +1,7 @@
 # Echo App Store preparation checklist
 
+Candidate changes: [Echo 1.1 preparation](releases/v1.1.md).
+
 Source checklist reviewed: 2026-11-10. This is a preparation checklist, not a readiness receipt.
 Store declarations, prices and agreements remain owner decisions. Track private
 audit results separately; keep contacts, tester identities, credentials and

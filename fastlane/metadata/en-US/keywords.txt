@@ -1,1 +1,1 @@
-flashcards,adhd,dyslexia,epub,m4b,anki,fsrs,audiobookshelf,offline,tts,loop,bookmark,readalong
+audiobook,flashcards,epub,pdf,m4b,fsrs,audiobookshelf,tts,bookmark,readalong,study,reader
