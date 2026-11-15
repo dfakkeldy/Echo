@@ -4,6 +4,7 @@ Two ways to produce raw App Store screenshots — both land PNGs in this folder.
 Review actual UI/content, current Apple dimensions and rights before a separately
 authorized `fastlane upload_screenshots` invocation. File presence is not review
 acceptance. The fresh repository contained no PNG/JPG finals on 2026-10-06.
+For the 1.1 candidate, see [preparation evidence](../../../docs/releases/v1.1.md).
 
 ## TL;DR
 
@@ -37,8 +38,8 @@ status bar (9:41, full bars, 100% battery). No App Store Connect key needed.
 - `fastlane/Snapfile` — device list, language list, scheme, output dir. Edit the
   `devices([...])` list to match `xcrun simctl list devices` on your Mac.
 - `Echo.xcodeproj/.../Echo Screenshots.xcscheme` — a shared scheme whose Test
-  action runs `EchoUITests` (the default **Echo** scheme deliberately excludes
-  UI tests, so snapshot needs its own).
+  action runs `EchoUITests` (the shared **Echo** scheme includes UI tests, while `make test` and CI select
+  only `EchoTests`; snapshot uses its dedicated scheme).
 - `EchoUITests/SnapshotHelper.swift` — stock fastlane helper (`setupSnapshot`,
   `snapshot()`).
 - `EchoUITests/EchoScreenshots.swift` — the test that launches the app and walks
