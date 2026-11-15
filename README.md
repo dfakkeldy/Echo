@@ -8,14 +8,16 @@
 **[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)** · TestFlight provides access to Echo beta builds.
 
 <p>
-  <img src="docs/assets/screenshots/echo-player.webp" width="200" alt="Echo's iPhone player showing The Merchant of Venice, chapter 1, with playback controls">
-  <img src="docs/assets/screenshots/echo-reader.webp" width="200" alt="Echo's read-along view showing the synced chapter text above the mini player">
+  <img src="docs/assets/screenshots/echo-v1.1-narration.png" width="200" alt="Echo 1.1 candidate with The Great Gatsby ready for text narration">
+  <img src="docs/assets/screenshots/echo-v1.1-settings.png" width="200" alt="Echo 1.1 candidate book preferences and appearance settings">
   <img src="docs/assets/screenshots/echo-watch-playback.webp" width="200" alt="Echo's Apple Watch playback screen with cover art, chapter title and controls">
 </p>
 
+Phone captures: 1.1 candidate. Watch capture: earlier release.
+
 Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you turn useful passages into spaced-repetition study cards. It can also narrate text-only documents on-device. It runs on **iOS/iPadOS 18+, macOS 15+, and watchOS 11+**; Watch is a companion to the iPhone player.
 
-**Documentation updated November 10, 2026.** It describes current Nightly source; check the What to Test notes for the build you install.
+**Echo 1.1 candidate documentation, updated November 15, 2026.** Read the [changes since App Store 1.0](docs/releases/v1.1.md), including the release-baseline caveat. This describes Nightly source, not an announcement of Apple approval; check the notes for the build you install.
 
 ## Start here
 

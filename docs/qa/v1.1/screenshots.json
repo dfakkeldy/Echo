@@ -1,0 +1,34 @@
+[
+  {
+    "file": "iPad Pro 13-inch (M5)-01_Player.png",
+    "width": 2064,
+    "height": 2752,
+    "mode": "RGB",
+    "sha256": "4f2c7efd1260317ee1ded4ff30afaec43a684ce77a21bb57e9eff37f21ee2904",
+    "review": "Visually inspected; no clipped text or debug overlays. Text-only Gatsby fixture; no invented listening statistics."
+  },
+  {
+    "file": "iPad Pro 13-inch (M5)-05_Settings.png",
+    "width": 2064,
+    "height": 2752,
+    "mode": "RGB",
+    "sha256": "722407a8b9e441dbacc2cbcc8d2ba39d439b38e0433561bbc6ce27b9ddf014bf",
+    "review": "Visually inspected; no clipped text or debug overlays. Text-only Gatsby fixture; no invented listening statistics."
+  },
+  {
+    "file": "iPhone 17 Pro Max-01_Player.png",
+    "width": 1320,
+    "height": 2868,
+    "mode": "RGB",
+    "sha256": "c4c75012b24492c3840d8e18e65b413c635a2a8a1467253c92450c6c1deebd92",
+    "review": "Visually inspected; no clipped text or debug overlays. Text-only Gatsby fixture; no invented listening statistics."
+  },
+  {
+    "file": "iPhone 17 Pro Max-05_Settings.png",
+    "width": 1320,
+    "height": 2868,
+    "mode": "RGB",
+    "sha256": "9d02651398dc72267cdcf47bcfce9e0736558bba6b882277b221b339445be237",
+    "review": "Visually inspected; no clipped text or debug overlays. Text-only Gatsby fixture; no invented listening statistics."
+  }
+]

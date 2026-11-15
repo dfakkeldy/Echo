@@ -1,0 +1,20 @@
+{
+  "result": "Passed",
+  "passedTests": 4336,
+  "failedTests": 0,
+  "skippedTests": 4,
+  "totalTestCount": 4340,
+  "startTime": 1794717321.578,
+  "finishTime": 1794718892.852,
+  "toolchain": "Xcode 27.2 (27B52)",
+  "source": "7f0a71a0af5ac211b361c4f4422b230c700e485d",
+  "destination": "iPhone 17, iOS 27.2 Simulator (24B8117), arm64",
+  "command": "make test",
+  "runtimeWarnings": [
+    "This method can lead to UI unresponsiveness if called on the main thread while the audio session is active.",
+    "This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+    "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions",
+    "[Internal] Thread running at User-interactive quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+    "[Internal] Thread running at User-interactive quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions"
+  ]
+}
