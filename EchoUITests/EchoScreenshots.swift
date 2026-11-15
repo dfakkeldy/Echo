@@ -161,7 +161,7 @@ nonisolated final class EchoScreenshots: XCTestCase {
         let item = app.buttons[label]
         guard item.waitForExistence(timeout: 5) else { return false }
         item.tap()
-        _ = waitForAny([app.staticTexts[label], app.navigationBars[label]], timeout: 5)
+        guard app.navigationBars[label].waitForExistence(timeout: 5) else { return false }
         settle()
         return true
     }

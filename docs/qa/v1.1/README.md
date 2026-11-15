@@ -40,3 +40,9 @@ Before submission, on a healthy host:
 5. Confirm the live App Store baseline (1.0 versus 1.0.1), reconcile the separate marketing site, and perform the owner-only submission checks in the release checklist.
 
 The candidate is **not certified ready to submit** by this PR. No claim is made that the observed collapsed fixture is a confirmed production regression; its cause remains unresolved.
+
+## Landing follow-up — November 15, MacBook
+
+Fresh-context Astra review found that `openMenuItem` discarded the destination wait result. The helper now requires the matching navigation bar before accepting Settings or Stats captures. Documentation contracts/automation and Fastlane tests passed again.
+
+The local simulator build did not reach compilation. Package resolution waited in SwiftPM's Keychain authorization lookup for public binary dependencies; that attempt was stopped. A retry with the per-command `-packageAuthorizationProvider netrc` option was refused by the build wrapper: free swap was 1,239 MB, below the 2,048 MB threshold. Only this task's simulator was shut down. A subsequent attempt was blocked because another Apple build was running. No safeguard was bypassed. The helper change, manual smoke pass and populated reader captures still need runtime verification on an admitted build.
