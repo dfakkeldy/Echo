@@ -26,3 +26,17 @@ The README and documentation landing page now use the accepted phone captures. T
 Apple builds were serialized for this task and gated against the dispatcher's host-health check and global build count. Fastlane and the repository's existing gem dependencies were installed into temporary host storage with Ruby 3.3.6; no project dependency or lockfile was changed. The temporary Fastlane installation's global `killall Simulator`, shutdown-all-booted-devices and Simulator preference changes were disabled to protect other threads. Only this task's simulators were closed. The project's lane, Snapfile and release/signing/workflow configuration were unchanged.
 
 No archive, signing, upload, account sign-in, purchase, TestFlight or Apple submission was performed. Physical Watch behavior, StoreKit purchase/restore, optional model downloads, remote services and the actual live App Store version remain owner checks.
+
+## Manual smoke blocker and remaining checks
+
+The requested manual T3 interaction pass could not run. Device discovery and opening this task's iPad succeeded, but the runner's first use can build XCTest support. Repeated dispatcher capacity checks remained unhealthy (swap peaked above 15 GB with this task's simulators running; after closing both, later checks still reported 8.1–8.5 GB against the 8 GB limit). No runner build or interaction was started while unhealthy. Other threads' devices and processes were left alone. Screenshot UI-test navigation is the only runtime interaction evidence in this handoff; it must not be reported as a manual smoke pass.
+
+Before submission, on a healthy host:
+
+1. Open a dedicated T3 device session and launch the candidate with the Gatsby fixture arguments used by `EchoScreenshots`.
+2. Select chapter I through the table of contents, expand text and scroll the continuous reader. Diagnose the collapsed/empty capture if actual chapter text is unavailable; preserve a screenshot of any failure.
+3. Exercise the Books shelf, reader controls and narration-engine selection. Inspect Watch Inbox settings without sending messages or configuring a real endpoint. Test model/audio behavior separately with approved media and downloads.
+4. Capture a populated reader on both Snapfile sizes and review it before adding it to the store set. Existing accepted setup/settings images do not demonstrate the new reader.
+5. Confirm the live App Store baseline (1.0 versus 1.0.1), reconcile the separate marketing site, and perform the owner-only submission checks in the release checklist.
+
+The candidate is **not certified ready to submit** by this PR. No claim is made that the observed collapsed fixture is a confirmed production regression; its cause remains unresolved.
