@@ -2882,6 +2882,40 @@ import ZIPFoundation
         #expect(FileManager.default.fileExists(atPath: out.path))
     }
 
+    @Test(arguments: [false, true])
+    func archivedNarrationPreservesInlinePronunciationError(preview: Bool) async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        try """
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:ssml="http://www.w3.org/2001/10/synthesis">
+        <body><p>Open <span ssml:alphabet="ipa" ssml:ph="meɪl">tiles/mail.json</span>.</p></body></html>
+        """.write(
+            to: expanded.appendingPathComponent("OEBPS/chap01.xhtml"), atomically: true,
+            encoding: .utf8)
+        let archive = tmp.appendingPathComponent("synthetic.epub")
+        try FileManager.default.zipItem(at: expanded, to: archive, shouldKeepParent: false)
+        let config = NarrationRunConfig(
+            epubURL: archive, outM4BURL: tmp.appendingPathComponent("out.m4b"), sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("work"), voice: VoiceID("af_heart"),
+            title: "Synthetic", author: "Tester", maxNewChaptersPerRun: nil)
+        do {
+            if preview {
+                _ = try await HeadlessNarrationRunner().preview(config)
+            } else {
+                _ = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+            }
+            Issue.record("Expected invalid inline pronunciation to fail before synthesis")
+        } catch let error as EPUBPronunciationError {
+            #expect(error.detail.contains("chap01.xhtml"))
+            #expect(error.detail.contains("tiles/mail.json"))
+            #expect(error.detail.contains("reserved"))
+        } catch {
+            Issue.record("Expected the original EPUB pronunciation error, received: \(error)")
+        }
+    }
+
     @Test func rejectsUnsupportedSourceTypes() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)

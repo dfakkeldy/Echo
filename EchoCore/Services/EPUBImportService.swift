@@ -83,7 +83,7 @@ nonisolated struct EPUBImportService {
                 epubRoot: assetBaseURL, opfDir: parse.opfDir)
             if let localPath = assetStorage.copyImage(
                 from: sourceURL, audiobookID: audiobookID,
-                filename: URL(fileURLWithPath: imagePath).lastPathComponent)
+                filename: sourceURL.lastPathComponent)
             {
                 allBlocks[idx].imagePath = localPath
             }
@@ -381,13 +381,16 @@ nonisolated struct EPUBImportService {
     // MARK: - Image resolution
 
     private func resolveImageURL(href: String, baseURL: URL, epubRoot: URL, opfDir: URL) -> URL {
-        if href.hasPrefix("/") {
-            return epubRoot.appendingPathComponent(String(href.dropFirst()))
-        }
         if href.contains("://") {
             return URL(fileURLWithPath: href)
         }
-        return baseURL.appendingPathComponent(href)
+        // EPUB hrefs are URI paths, not literal filesystem names. Decode once
+        // so %20 addresses a space and %2520 addresses a literal %20.
+        let path = href.removingPercentEncoding ?? href
+        if path.hasPrefix("/") {
+            return epubRoot.appendingPathComponent(String(path.dropFirst()))
+        }
+        return baseURL.appendingPathComponent(path)
     }
 }
 
