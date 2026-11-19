@@ -78,7 +78,7 @@ acknowledgment, and disclaimer are reproduced in the CMUdict section above.
 ## Phonon 31M and the Phonon runtime
 
 Gradium's native Phonon runtime (`xn-ptts`, Swift product `ptts`) is used under
-its MIT licensing option. Upstream: https://github.com/gradium-ai/xn-ptts/tree/v0.4.0.
+its MIT licensing option. Upstream: https://github.com/gradium-ai/xn-ptts/tree/v0.7.1.
 Phonon builds on Pocket TTS and the Mimi codec from Kyutai. The Phonon 31M English
 model and bundled catalog voices are Apache-2.0, downloaded separately from
 https://huggingface.co/gradium/phonon-31m-en and the matching Gradium release.

@@ -94,8 +94,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gradium-ai/xn-ptts.git",
       "state" : {
-        "revision" : "f07d7952db0c6127d5e4bc3f41c82b3304b6b5aa",
-        "version" : "0.4.0"
+        "revision" : "5f9522b3e245846d312caaeb460d3dcae5d1a991",
+        "version" : "0.7.1"
       }
     },
     {

@@ -15,7 +15,9 @@ import Testing
         let phonon = VoiceCatalog.rendererIdentity(for: [VoiceID("ph31m_v040_preston")])
         #expect(kokoro == NarrationFileNaming.rendererIdentity)
         #expect(phonon != kokoro)
-        #expect(phonon.contains("phonon-31m-en.coreml.0.4.0"))
+        #expect(phonon == "echo.phonon-31m-en.coreml.0.7.1")
+        #expect(PhononModelStore.release == VoiceCatalog.phononRelease)
+        #expect(PhononModelStore.downloadURL.absoluteString.contains("/v0.7.1/"))
         #expect(VoiceCatalog.phonon.allSatisfy { $0.isPhonon })
     }
 
@@ -176,6 +178,9 @@ import Testing
             #expect(chunk.pronunciationFallbackHits.isEmpty)
             #expect(chunk.samples.allSatisfy { $0.isFinite })
             #expect(chunk.samples.contains { abs($0) > 0.001 })
+            // The per-utterance seed makes a repeat render of the same text identical.
+            let repeated = try await engine.synthesize(text, voice: voice)
+            #expect(repeated.samples == chunk.samples)
             _ = try await AVFoundationAudioWriter().write(
                 [chunk], to: directory.appendingPathComponent("phonon-public-proof.m4a"))
             try Data(text.utf8).write(to: directory.appendingPathComponent("reference.txt"))

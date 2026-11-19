@@ -12,6 +12,11 @@
         private var selectedVoice: String?
         private var generation = 0
 
+        /// Phonon samples its output. Re-seeding before every utterance makes the
+        /// same text and voice render the same audio, whatever came before, so
+        /// re-renders, synthesis-cache reuse and QA comparisons are reproducible.
+        nonisolated static let renderSeed: UInt64 = 0x4563_686F
+
         func prepare() async throws { try await prepare(progress: { _ in }) }
 
         func prepare(
@@ -82,6 +87,7 @@
                 guard generation == renderGeneration else { throw CancellationError() }
                 selectedVoice = name
             }
+            await model.setSeed(Self.renderSeed)
             let samples = try await model.synthesize(text)
             try Task.checkCancellation()
             guard generation == renderGeneration else { throw CancellationError() }

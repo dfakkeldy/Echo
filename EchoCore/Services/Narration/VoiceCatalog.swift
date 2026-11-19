@@ -78,8 +78,9 @@ nonisolated enum VoiceCatalog {
         v("bm_daniel", "Daniel", .british, .male, "D"),
     ]
 
-    /// The versioned prefix keeps Phonon audio out of Kokoro's existing caches.
-    /// These voices are included in the pinned Core ML release bundle.
+    /// The prefix separates Phonon voices from Kokoro's; it predates 0.7.1 and
+    /// stays fixed (see `phononRelease`). These voices are included in the
+    /// pinned Core ML release bundle.
     private static let phononVoices: [NarrationVoice] = [
         p("Hadley", .american, .female),
         p("Harper", .american, .female),
@@ -100,6 +101,12 @@ nonisolated enum VoiceCatalog {
     static let all: [NarrationVoice] = kokoro + phonon
     static let `default`: NarrationVoice = kokoro[0]
 
+    /// The pinned `ptts` runtime and Core ML bundle release. It is part of the
+    /// renderer identity, so a bump keeps earlier Phonon audio out of every cache.
+    /// Voice IDs keep their historical `ph31m_v040_` prefix so saved selections
+    /// and per-block voice plans survive runtime upgrades.
+    nonisolated static let phononRelease = "0.7.1"
+
     static func phononName(for id: VoiceID) -> String? {
         phononVoices.first { $0.id == id }?.displayName
     }
@@ -109,7 +116,7 @@ nonisolated enum VoiceCatalog {
             voices.map { voice in
                 phononName(for: voice) == nil
                     ? NarrationFileNaming.rendererIdentity
-                    : "echo.phonon-31m-en.coreml.0.4.0"
+                    : "echo.phonon-31m-en.coreml.\(phononRelease)"
             })
         return families.sorted().joined(separator: "+")
     }

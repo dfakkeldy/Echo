@@ -1267,7 +1267,7 @@ struct NarrationRunResult {
         if rendererIdentity.contains("phonon-31m") {
             engine =
                 (rendererIdentity.contains("kokoro") ? "Kokoro + " : "")
-                + "Phonon 31M Core ML 0.4.0"
+                + "Phonon 31M Core ML \(VoiceCatalog.phononRelease)"
         } else {
             engine = "ONNX rv\(NarrationFileNaming.renderVersion)"
         }
