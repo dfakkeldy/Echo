@@ -1080,9 +1080,12 @@ Block-level read-along (the active paragraph) is refined to **word level** so th
 ### On-Device Narration — Synthesis Engine Core (June 2026)
 
 **Current engines (October 2026).** `NarrationEngineFactory` returns a lazy
-`NarrationEngineRouter`: existing voice IDs use `OnnxKokoroEngine`; six versioned
-`ph31m_v040_*` voices use `PhononTTSEngine` through Gradium's exact `ptts` 0.4.0
-Swift package. `prepare(voice:progress:)` loads the selected engine only. The
+`NarrationEngineRouter`: existing voice IDs use `OnnxKokoroEngine`; six
+`ph31m_v040_*` voices (a fixed historical prefix) use `PhononTTSEngine` through
+Gradium's exact `ptts` 0.7.1 Swift package; `VoiceCatalog.phononRelease` carries
+the runtime version into the renderer identity and synthesis-cache keys. The engine
+re-seeds sampling before every utterance, so a repeat render is identical.
+`prepare(voice:progress:)` loads the selected engine only. The
 router also handles mixed chapter/block voice plans and unloads both engines at
 existing lifecycle boundaries. Phonon serializes voice changes with synthesis,
 keeps Core ML off the main actor, and emits mono 24 kHz PCM without claiming

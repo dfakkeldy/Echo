@@ -7,16 +7,18 @@
     /// Versioned, verified Core ML assets shared by every Phonon narrator.
     actor PhononModelStore {
         static let shared = PhononModelStore()
-        nonisolated static let release = "0.4.0"
-        nonisolated static let archiveBytes: Int64 = 137_096_081
+        nonisolated static let release = VoiceCatalog.phononRelease
+        nonisolated static let archiveBytes: Int64 = 137_300_950
         nonisolated static let archiveSHA256 =
-            "10f3a99fd39256db44f826267ef21d78cca959b16c0554926344c09fde27b436"
+            "058cde756a5e67bcdb986e7c45fe431d41a1a9073e68aabae314c80631a34b76"
         nonisolated static let manifestSHA256 =
-            "ff3156ce14578cee796d6ab99fb03a833f4d03aded05fdd962087129f3c7b87f"
+            "8c4cc8ba9619695ef231c7770938286073d3e6ea04863d4efe821c36bd9e4007"
         nonisolated static let downloadURL = URL(
             string:
-                "https://github.com/gradium-ai/xn-ptts/releases/download/v0.4.0/phonon-31m-en-coreml.zip"
+                "https://github.com/gradium-ai/xn-ptts/releases/download/v0.7.1/phonon-31m-en-coreml.zip"
         )!
+
+        nonisolated static let archiveRoot = "phonon-31m-en"
 
         private var delivery: Task<URL, Error>?
 
@@ -69,8 +71,8 @@
             let staging = parent.appendingPathComponent(UUID().uuidString, isDirectory: true)
             defer { try? fm.removeItem(at: staging) }
             try fm.unzipItem(at: archive, to: staging)
-            let extracted = staging.appendingPathComponent(
-                "phonon-31m-en-coreml", isDirectory: true)
+            // 0.4.0 archived the bundle as `phonon-31m-en-coreml/`; 0.7.x as `phonon-31m-en/`.
+            let extracted = staging.appendingPathComponent(archiveRoot, isDirectory: true)
             try validateBundle(at: extracted)
             if fm.fileExists(atPath: directory.path) { try fm.removeItem(at: directory) }
             try fm.moveItem(at: extracted, to: directory)

@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Phonon 31M narration now uses Gradium's `ptts` 0.7.1 runtime and re-exported
+  Core ML bundle. That bundle fixes long sentences ending early. Echo now pins
+  its own sampling seed instead of relying on the upstream default, so the same
+  text and voice keep giving the same audio. Saved Phonon voice choices keep
+  working; the first use downloads the new bundle.
+
 - `echo-cli narrate --synthesis-cache DIR` reuses synthesized audio across
   renders of an edited book: only chunks whose frozen synthesis plan, voice or
   renderer build changed are synthesized again. `--dry-run` lists the blocks
