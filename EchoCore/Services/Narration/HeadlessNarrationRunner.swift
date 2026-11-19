@@ -2170,14 +2170,15 @@ struct NarrationRunResult {
             // Headless narration imports with no book duration, so
             // DocumentImportFinalizer skips the community-CloudKit anchor query
             // (which would stall/fault with no iCloud entitlement).
-            let didImport = await EPUBAutoImportScanner.importEPUBFile(
+            let outcome = await EPUBAutoImportScanner.importEPUBFileOutcome(
                 epubURL: epubURL,
                 audiobookID: audiobookID,
                 databaseService: db,
                 chapters: [],
                 duration: nil,
                 force: true)
-            guard didImport else {
+            if case .failed(_, let error) = outcome { throw error }
+            guard outcome.didImportBlocks else {
                 throw NarrationRunError.noSourceImported(epubURL.lastPathComponent)
             }
             do {

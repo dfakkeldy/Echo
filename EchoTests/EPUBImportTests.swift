@@ -73,6 +73,46 @@ struct EPUBImportTests {
         return tmp
     }
 
+    @Test(arguments: [
+        ("my%20fig.png", "my fig.png"),
+        ("my fig.png", "my fig.png"),
+        ("my%2520fig.png", "my%20fig.png"),
+        ("my%23fig.png", "my#fig.png"),
+    ])
+    func imageHrefLocalizesDecodedFile(href: String, filename: String) async throws {
+        let root = try makeMinimalEPUB()
+        let id = "image-href-" + UUID().uuidString
+        let db = try DatabaseService(inMemory: ())
+        let storage = EPUBAssetStorage(databaseService: db)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            if let directory = storage.directory(for: id) {
+                try? FileManager.default.removeItem(at: directory)
+            }
+        }
+        let images = root.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let bytes = Data([137, 80, 78, 71])
+        try bytes.write(to: images.appendingPathComponent(filename))
+        try """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <body><img src="images/\(href)" alt="Diagram"/></body></html>
+        """.write(
+            to: root.appendingPathComponent("chapter1.xhtml"), atomically: true, encoding: .utf8)
+        try db.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, 'Synthetic', 0)",
+                arguments: [id])
+        }
+        let blocks = try await EPUBImportService(assetStorage: storage).import(
+            audiobookID: id, epubURL: root, chapters: [], bookDuration: nil)
+        let path = try #require(blocks.first { $0.blockKind == "image" }?.imagePath)
+        #expect(path.hasPrefix(try #require(storage.directory(for: id)).path))
+        #expect(URL(fileURLWithPath: path).lastPathComponent == filename)
+        let resolved = try #require(VisualListeningImageLocator.resolvedURL(forStoredPath: path))
+        #expect(try Data(contentsOf: resolved) == bytes)
+    }
+
     @Test func epubImportParsesSpineAndBlocks() async throws {
         let db = try DatabaseService(inMemory: ())
         let epubDir = try makeMinimalEPUB()
