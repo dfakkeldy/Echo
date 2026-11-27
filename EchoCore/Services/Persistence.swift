@@ -287,6 +287,8 @@ struct Persistence {
     /// included in plaintext backups.  (§6.2)
     @discardableResult
     func saveBookmark(url: URL) -> Bool {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try url.bookmarkData(
                 options: [],  // Full security-scoped bookmark survives app relaunch

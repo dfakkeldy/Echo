@@ -73,6 +73,7 @@ enum LibraryBookOpenRoute: Equatable {
 enum LibraryBookOpenError: LocalizedError, Equatable {
     case missing(URL)
     case unreadable(URL)
+    case permissionDenied(URL)
     case unsupported(URL)
     case empty(URL)
 
@@ -82,6 +83,8 @@ enum LibraryBookOpenError: LocalizedError, Equatable {
             "This book can’t be opened because its file or folder is missing."
         case .unreadable:
             "This book can’t be opened because Echo can’t read it."
+        case .permissionDenied:
+            "Echo needs permission to open this book. Pick it once with the folder button (or add its folder to your Library) to restore access."
         case .unsupported:
             "This Library item doesn’t contain a supported audiobook or study document."
         case .empty:
@@ -1132,7 +1135,14 @@ struct LibraryService {
     /// A root-backed book whose root row is missing or whose bookmark no longer
     /// resolves is treated as unavailable and throws `LibraryError.unresolvableBook`
     /// (it must not silently fall through to an unscoped open).
-    func urlForOpening(_ book: AudiobookRecord) throws -> LibraryOpenTarget {
+    func urlForOpening(
+        _ book: AudiobookRecord,
+        resolveBookBookmark: (String) -> URL? = { LibraryAccess.resolveBookBookmark(for: $0) },
+        restoreLastSelectionBookmark: () -> URL? = { Persistence().restoreBookmark() },
+        isReadableWithoutScope: (URL) -> Bool = {
+            FileManager.default.isReadableFile(atPath: $0.path)
+        }
+    ) throws -> LibraryOpenTarget {
         if let rootID = book.sourceRootID {
             guard let root = try LibraryRootDAO(db: db.writer).get(rootID),
                 let resolved = LibraryAccess.resolveURL(from: root.bookmark),
@@ -1144,12 +1154,69 @@ struct LibraryService {
             else {
                 throw LibraryError.unresolvableBook(book.id)
             }
+            if resolved.isStale, let refreshed = LibraryAccess.makeBookmark(for: resolved.url) {
+                var updatedRoot = root
+                updatedRoot.bookmark = refreshed
+                try? LibraryRootDAO(db: db.writer).save(updatedRoot)
+            }
             return LibraryOpenTarget(url: childURL, scopedRoot: resolved.url)
         }
         guard let url = URL(string: book.id), url.isFileURL else {
             throw LibraryError.unresolvableBook(book.id)
         }
+        // 1. Prefer the book's own Keychain security-scoped bookmark (saved when
+        //    the book was picked directly from the file selector).
+        if let bookmarkedURL = resolveBookBookmark(book.id) {
+            return LibraryOpenTarget(url: bookmarkedURL, scopedRoot: nil)
+        }
+        // 2. If this book matches the single global last-opened bookmark (e.g.
+        //    picked before per-book bookmarks existed), use its scoped URL and
+        //    backfill the per-book bookmark so it survives switching books.
+        if let lastURL = restoreLastSelectionBookmark(),
+            lastURL.standardizedFileURL == url.standardizedFileURL
+        {
+            LibraryAccess.saveBookBookmark(for: lastURL, bookID: book.id)
+            return LibraryOpenTarget(url: lastURL, scopedRoot: nil)
+        }
+        // 3. When a directly picked file (e.g. an .m4b) lives inside a registered
+        //    Library root and isn't readable without a scope, borrow that root's
+        //    security scope so opening from the Library page still works.
+        if !isReadableWithoutScope(url),
+            let coveringRoot = try coveringLibraryRoot(for: url)
+        {
+            return LibraryOpenTarget(url: url, scopedRoot: coveringRoot)
+        }
         return LibraryOpenTarget(url: url, scopedRoot: nil)
+    }
+
+    /// Finds the deepest registered `library_root` whose resolved directory
+    /// contains `targetURL`, refreshing stale root bookmarks along the way.
+    private func coveringLibraryRoot(for targetURL: URL) throws -> URL? {
+        let roots = try LibraryRootDAO(db: db.writer).all()
+        var bestMatch: (url: URL, depth: Int)?
+        for root in roots {
+            guard !root.bookmark.isEmpty,
+                let resolved = LibraryAccess.resolveURL(from: root.bookmark)
+            else { continue }
+            if resolved.isStale, let refreshed = LibraryAccess.makeBookmark(for: resolved.url) {
+                var updatedRoot = root
+                updatedRoot.bookmark = refreshed
+                try? LibraryRootDAO(db: db.writer).save(updatedRoot)
+            }
+            guard Self.isDescendant(targetURL, of: resolved.url) else { continue }
+            let depth = resolved.url.standardizedFileURL.resolvingSymlinksInPath().pathComponents.count
+            if bestMatch == nil || depth > bestMatch!.depth {
+                bestMatch = (resolved.url, depth)
+            }
+        }
+        return bestMatch?.url
+    }
+
+    private static func isDescendant(_ child: URL, of ancestor: URL) -> Bool {
+        let childComponents = child.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let ancestorComponents = ancestor.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        guard childComponents.count >= ancestorComponents.count else { return false }
+        return Array(childComponents.prefix(ancestorComponents.count)) == ancestorComponents
     }
 
     // MARK: - Private grouping helpers

@@ -13,11 +13,11 @@
         let onConnectServer: () -> Void
         private let anthologyService: AnthologyService
         private let anthologyBuildService: AnthologyBuildService
-        private let openBook: (LibraryOpenTarget) -> Void
+        private let openBook: (LibraryOpenTarget) throws -> Void
 
         init(
             db: DatabaseService,
-            openBook: @escaping (LibraryOpenTarget) -> Void,
+            openBook: @escaping (LibraryOpenTarget) throws -> Void,
             onAddFolder: @escaping () -> Void,
             onConnectServer: @escaping () -> Void
         ) {
@@ -225,7 +225,7 @@
                 viewModel: anthologyListViewModel,
                 service: anthologyService,
                 buildService: anthologyBuildService,
-                openBook: openBook,
+                openBook: { target in try? openBook(target) },
                 cleanupContext: articleInboxViewModel.cleanupContext,
                 onSuccessfulBuild: {
                     await articleInboxViewModel.reload()

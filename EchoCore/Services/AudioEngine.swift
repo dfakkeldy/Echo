@@ -73,17 +73,31 @@ final class AudioEngine {
     /// The URL of the currently loaded audio file, if any.
     var audioFileURL: URL? { audioFile?.url }
 
+    /// Identity of the current underlying AVAudioEngine instance, exposed for
+    /// recovery tests verifying that an orphaned or wedged graph is replaced.
+    var currentEngineIdentity: ObjectIdentifier? { engine.map(ObjectIdentifier.init) }
+
+    /// Current gain applied to `eqNode`, exposed for recovery tests verifying
+    /// volume boost / watch gain survives an engine graph rebuild.
+    var currentEQGain: Float? { eqNode?.globalGain }
+
+    /// Optional test seams for simulating audio-session and engine-start failures.
+    @ObservationIgnored var engineStartHandler: ((AVAudioEngine) throws -> Void)?
+    @ObservationIgnored var audioSessionActivator: (() throws -> Void)?
+
     // MARK: - Delegate
 
     weak var delegate: AudioEngineDelegate?
 
     // MARK: - Engine & Nodes
 
+    private let ownsEngineGraph: Bool
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var eqNode: AVAudioUnitEQ?
     private var timePitchNode: AVAudioUnitTimePitch?
     private var audioFile: AVAudioFile?
+    private var currentGain: Float = 0.0
 
     // MARK: - WS-4 Subsystems
 
@@ -118,11 +132,14 @@ final class AudioEngine {
     private var audioSessionConfigured = false
     private var seekGeneration = 0
 
-    init() {}
+    init() {
+        self.ownsEngineGraph = true
+    }
 
     /// Accept an already connected graph, including one configured for offline rendering.
     init(engine: AVAudioEngine, playerNode: AVAudioPlayerNode) {
         precondition(playerNode.engine === engine, "Player node must belong to the supplied engine")
+        self.ownsEngineGraph = false
         self.engine = engine
         self.playerNode = playerNode
         setupConfigurationChangeObserver(for: engine)
@@ -136,22 +153,50 @@ final class AudioEngine {
 
     // MARK: - Audio Session
 
-    func configureAudioSession() {
-        guard !audioSessionConfigured else { return }
+    @discardableResult
+    private func activateAudioSession() -> Bool {
+        if let audioSessionActivator {
+            do {
+                try audioSessionActivator()
+                audioSessionConfigured = true
+                return true
+            } catch {
+                let nsError = error as NSError
+                os_log(
+                    .error, "AudioSession error (%{public}@ %d): %{private}@",
+                    nsError.domain, nsError.code, error.localizedDescription)
+                audioSessionConfigured = false
+                return false
+            }
+        }
         #if os(iOS)
             let session = AVAudioSession.sharedInstance()
             do {
                 try session.setCategory(.playback, mode: .spokenAudio, options: [])
                 try session.setActive(true)
                 audioSessionConfigured = true
+                return true
             } catch {
-                os_log(.error, "AudioSession error: %{private}@", error.localizedDescription)
+                let nsError = error as NSError
+                os_log(
+                    .error, "AudioSession error (%{public}@ %d): %{private}@",
+                    nsError.domain, nsError.code, error.localizedDescription)
+                audioSessionConfigured = false
+                return false
             }
+        #else
+            audioSessionConfigured = true
+            return true
+        #endif
+    }
+
+    func configureAudioSession() {
+        guard !audioSessionConfigured else { return }
+        _ = activateAudioSession()
+        #if os(iOS)
             setupInterruptionObserver()
             setupRouteChangeObserver()
             setupMediaServicesObservers()
-        #else
-            audioSessionConfigured = true
         #endif
         configureEngineGraph()
     }
@@ -162,6 +207,7 @@ final class AudioEngine {
         let engine = AVAudioEngine()
         let playerNode = AVAudioPlayerNode()
         let eqNode = AVAudioUnitEQ()
+        eqNode.globalGain = currentGain
         let timePitchNode = AVAudioUnitTimePitch()
         // A tiny non-zero pitch prevents the audio unit's internal passthrough
         // optimisation when rate=1.0, which would otherwise ignore rate changes
@@ -189,6 +235,7 @@ final class AudioEngine {
         self.playerNode = playerNode
         self.eqNode = eqNode
         self.timePitchNode = timePitchNode
+        applyPlaybackRate(speed)
 
         // Wire WS-4 subsystems into the audio graph.
         soundscapeMixer = DefaultSoundscapeMixer(engine: engine)
@@ -300,35 +347,43 @@ final class AudioEngine {
     func play() {
         guard let playerNode, let engine, isItemLoaded else { return }
         guard !isPlaying || !engine.isRunning || !playerNode.isPlaying else { return }
-        // stop() removed the route/interruption observers and cleared the
-        // session-configured flag; re-arm before resuming so unplugging
-        // headphones or an interruption still pauses playback (§5.9).
-        if !audioSessionConfigured { configureAudioSession() }
-        guard rescheduleForResume() else { return }
-        guard startEngineIfNeeded() else {
-            reportUnexpectedStop()
-            return
-        }
-        applyPlaybackRate(speed)
-        playerNode.play()
-        isPlaying = true
-        startTimeTimer()
+        resumePlayback(atRate: speed)
     }
 
     func playImmediately(atRate rate: Float) {
         setSpeed(rate)
-        guard let playerNode, engine != nil, isItemLoaded else { return }
-        if !audioSessionConfigured { configureAudioSession() }  // re-arm after stop() (§5.9)
+        guard let playerNode, let engine, isItemLoaded else { return }
         // A speed update while playing must not rebase or replace the active segment.
-        if !isPlaying || engine?.isRunning != true || !playerNode.isPlaying {
-            guard rescheduleForResume() else { return }
+        if isPlaying && engine.isRunning && playerNode.isPlaying {
+            applyPlaybackRate(rate)
+            return
         }
-        guard startEngineIfNeeded() else {
+        resumePlayback(atRate: rate)
+    }
+
+    private func resumePlayback(atRate rate: Float) {
+        // stop() removed the route/interruption observers and cleared the
+        // session-configured flag; re-arm before resuming so unplugging
+        // headphones or an interruption still pauses playback (§5.9).
+        if !audioSessionConfigured {
+            configureAudioSession()
+        } else if ownsEngineGraph || audioSessionActivator != nil {
+            // Re-activate the audio session on resume from pause/stop: iOS,
+            // CarPlay/Bluetooth route transitions, Siri, or VoiceMemoRecorder
+            // can deactivate it while paused without firing .began.
+            _ = activateAudioSession()
+        }
+        guard rescheduleForResume() else { return }
+        guard startEngineWithRecovery(at: currentTime) else {
             reportUnexpectedStop()
             return
         }
         applyPlaybackRate(rate)
-        playerNode.play()
+        guard let activePlayerNode = self.playerNode else {
+            reportUnexpectedStop()
+            return
+        }
+        activePlayerNode.play()
         isPlaying = true
         startTimeTimer()
     }
@@ -380,12 +435,18 @@ final class AudioEngine {
         scheduleSegment(file: audioFile, from: startFrame, frames: framesToPlay)
 
         if wasPlaying {
-            guard startEngineIfNeeded() else {
+            guard startEngineWithRecovery(at: clampedTime) else {
                 reportUnexpectedStop()
                 completion?(false)
                 return
             }
-            playerNode.play()
+            applyPlaybackRate(speed)
+            guard let activePlayerNode = self.playerNode else {
+                reportUnexpectedStop()
+                completion?(false)
+                return
+            }
+            activePlayerNode.play()
             isPlaying = true
             startTimeTimer()
         }
@@ -416,11 +477,16 @@ final class AudioEngine {
         scheduleSegment(file: audioFile, from: startFrame, frames: framesToPlay)
 
         if wasPlaying {
-            guard startEngineIfNeeded() else {
+            guard startEngineWithRecovery(at: clampedTime) else {
                 reportUnexpectedStop()
                 return false
             }
-            playerNode.play()
+            applyPlaybackRate(speed)
+            guard let activePlayerNode = self.playerNode else {
+                reportUnexpectedStop()
+                return false
+            }
+            activePlayerNode.play()
             isPlaying = true
             startTimeTimer()
         }
@@ -455,6 +521,7 @@ final class AudioEngine {
     /// Set the output gain of the EQ node. 0.0 = unity gain.
     /// Range typically -96 to 24 dB.
     func setGain(_ gain: Float) {
+        currentGain = gain
         eqNode?.globalGain = gain
     }
 
@@ -463,10 +530,14 @@ final class AudioEngine {
     func fadeGain(to targetGain: Float, duration: TimeInterval) {
         fadeTask?.cancel()
         fadeTask = nil
-        guard let eqNode else { return }
+        guard let eqNode else {
+            currentGain = targetGain
+            return
+        }
         let startGain = eqNode.globalGain
         let steps = Int(duration / 0.05)
         guard steps > 0 else {
+            currentGain = targetGain
             eqNode.globalGain = targetGain
             return
         }
@@ -480,10 +551,13 @@ final class AudioEngine {
                 if Task.isCancelled { return }
                 guard let self, let eqNode = self.eqNode else { return }
                 if step >= steps {
+                    self.currentGain = targetGain
                     eqNode.globalGain = targetGain
                     self.fadeTask = nil
                 } else {
-                    eqNode.globalGain = startGain + gainDelta * Float(step)
+                    let nextGain = startGain + gainDelta * Float(step)
+                    self.currentGain = nextGain
+                    eqNode.globalGain = nextGain
                 }
             }
         }
@@ -516,7 +590,7 @@ final class AudioEngine {
         currentTime = initialOffset
         duration = nil
 
-        guard let playerNode, engine != nil else {
+        guard playerNode != nil, engine != nil else {
             return .failure(
                 AudioItemLoadFailure(privateDetail: "Audio engine is not configured"))
         }
@@ -553,12 +627,16 @@ final class AudioEngine {
             scheduleSegment(file: file, from: startFrame, frames: framesToPlay)
 
             if wasPlaying {
-                guard startEngineIfNeeded() else {
+                guard startEngineWithRecovery(at: clampedOffset) else {
                     reportUnexpectedStop()
                     return .failure(AudioItemLoadFailure(privateDetail: "Audio engine could not start"))
                 }
                 applyPlaybackRate(speed)
-                playerNode.play()
+                guard let activePlayerNode = self.playerNode else {
+                    reportUnexpectedStop()
+                    return .failure(AudioItemLoadFailure(privateDetail: "Audio engine could not start"))
+                }
+                activePlayerNode.play()
                 isPlaying = true
                 startTimeTimer()
             }
@@ -609,7 +687,16 @@ final class AudioEngine {
         // Paired with `configureEngineGraph()`, not with `stop()`: the engine
         // instance survives `stop()` and the graph builder early-returns while
         // it does, so tearing the observer down there would never re-arm it.
+        tearDownEngineGraph()
+    }
+
+    private func tearDownEngineGraph() {
         removeConfigurationChangeObserver()
+        soundscapeMixer?.stop()
+        chimePlayer?.cancel()
+        playerNode?.stop()
+        engine?.stop()
+        engine?.reset()
         engine = nil
         playerNode = nil
         eqNode = nil
@@ -617,6 +704,85 @@ final class AudioEngine {
         soundscapeMixer = nil
         chimePlayer = nil
         visualizerTap = nil
+    }
+
+    /// Tears down the current `AVAudioEngine` graph and builds a fresh one,
+    /// preserving gain, speed, and any loaded audio item scheduled at `resumeTime`.
+    /// Required after `mediaServicesWereReset` (which permanently orphans existing
+    /// audio objects) and as self-healing recovery when `engine.start()` fails
+    /// after a hardware route/format reconfiguration while paused.
+    @discardableResult
+    private func rebuildEngineGraphPreservingLoadedItem(at resumeTime: TimeInterval? = nil) -> Bool {
+        guard ownsEngineGraph else { return false }
+
+        let savedFile = audioFile
+        let savedURL = savedFile?.url
+        let savedDuration = duration
+        let targetTime = resumeTime ?? currentTime
+
+        seekGeneration += 1
+        isPlaying = false
+        stopTimeTimer()
+        prebufferedFile = nil
+
+        tearDownEngineGraph()
+        audioFile = nil
+
+        audioSessionConfigured = false
+        configureAudioSession()
+
+        guard playerNode != nil, engine != nil else { return false }
+        eqNode?.globalGain = currentGain
+        applyPlaybackRate(speed)
+
+        guard let savedFile else {
+            duration = savedDuration
+            seekOffset = targetTime
+            currentTime = targetTime
+            return true
+        }
+
+        let restoredFile: AVAudioFile
+        if let savedURL, let reopened = try? AVAudioFile(forReading: savedURL) {
+            restoredFile = reopened
+        } else {
+            restoredFile = savedFile
+        }
+
+        audioFile = restoredFile
+        let sampleRate = restoredFile.processingFormat.sampleRate
+        let totalFrames = restoredFile.length
+        let fileDuration = sampleRate > 0 ? Double(totalFrames) / sampleRate : (savedDuration ?? 0)
+        duration = fileDuration > 0 ? fileDuration : savedDuration
+
+        let clampedTime = max(0, min(targetTime, fileDuration))
+        let startFrame = AVAudioFramePosition(clampedTime * sampleRate)
+        let framesToPlay =
+            totalFrames > startFrame ? AVAudioFrameCount(totalFrames - startFrame) : 0
+
+        seekOffset = clampedTime
+        currentTime = clampedTime
+
+        guard framesToPlay > 0 else { return false }
+
+        scheduleSegment(file: restoredFile, from: startFrame, frames: framesToPlay)
+        return true
+    }
+
+    /// Rebuilds an orphaned `AVAudioEngine` graph after `mediaserverd` resets.
+    /// Without replacing `engine`, `configureEngineGraph()` early-returns and
+    /// every subsequent `play()` across all books fails until force-quit.
+    func handleMediaServicesReset() {
+        let wasPlaying = isPlaying
+        audioSessionConfigured = false
+        if ownsEngineGraph {
+            _ = rebuildEngineGraphPreservingLoadedItem()
+        } else {
+            configureAudioSession()
+        }
+        if wasPlaying {
+            reportUnexpectedStop()
+        }
     }
 
     // MARK: - Pre-buffering (multi-M4B gapless transition)
@@ -634,15 +800,33 @@ final class AudioEngine {
 
     // MARK: - Private Helpers
 
+    private func startEngineWithRecovery(at targetTime: TimeInterval) -> Bool {
+        if startEngineIfNeeded() {
+            return true
+        }
+        guard ownsEngineGraph else { return false }
+        os_log(.error, "AudioEngine: rebuilding audio graph after engine start failure")
+        guard rebuildEngineGraphPreservingLoadedItem(at: targetTime) else {
+            return false
+        }
+        return startEngineIfNeeded()
+    }
+
     private func startEngineIfNeeded() -> Bool {
         guard let engine else { return false }
         if engine.isRunning { return true }
         do {
-            try engine.start()
+            if let engineStartHandler {
+                try engineStartHandler(engine)
+            } else {
+                try engine.start()
+            }
             return engine.isRunning
         } catch {
+            let nsError = error as NSError
             os_log(
-                .error, "AudioEngine: engine start error: %{private}@", error.localizedDescription)
+                .error, "AudioEngine: engine start error (%{public}@ %d): %{private}@",
+                nsError.domain, nsError.code, error.localizedDescription)
             return false
         }
     }
@@ -826,8 +1010,7 @@ final class AudioEngine {
             ) { [weak self] _ in
                 guard let self else { return }
                 MainActor.assumeIsolated {
-                    self.audioSessionConfigured = false
-                    self.configureAudioSession()
+                    self.handleMediaServicesReset()
                 }
             }
         }

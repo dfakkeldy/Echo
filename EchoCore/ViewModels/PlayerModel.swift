@@ -1532,6 +1532,35 @@ final class PlayerModel {
         selectedTab = .nowPlaying
     }
 
+    /// Validating entry point used by the Library shelf. Verifies sandbox
+    /// readability before mutating player state or switching to Now Playing so
+    /// an unscoped book surfaces an actionable permission alert instead of a
+    /// silent, unplayable Play button.
+    func openLibraryBookOrThrow(
+        _ target: LibraryOpenTarget,
+        isReadable: (URL) -> Bool = { FileManager.default.isReadableFile(atPath: $0.path) },
+        isUbiquitous: (URL) -> Bool = { url in
+            (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) ?? false
+        }
+    ) throws {
+        let openingURL =
+            BookPreferencesService.reopenDocumentURL(for: target.url) ?? target.url
+        let scopeURL = target.scopedRoot ?? openingURL
+        let startedProbe = scopeURL.startAccessingSecurityScopedResource()
+        defer { if startedProbe { scopeURL.stopAccessingSecurityScopedResource() } }
+
+        if !isUbiquitous(openingURL) && !isReadable(openingURL) {
+            if target.scopedRoot == nil && !startedProbe {
+                throw LibraryBookOpenError.permissionDenied(openingURL)
+            }
+            if !FileManager.default.fileExists(atPath: openingURL.path) {
+                throw LibraryBookOpenError.missing(openingURL)
+            }
+            throw LibraryBookOpenError.unreadable(openingURL)
+        }
+        openLibraryBook(target)
+    }
+
     func registerLibraryRoot(url: URL) async {
         guard let db = databaseService else { return }
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
@@ -2128,5 +2157,14 @@ final class PlayerModel {
         // Save security-scoped bookmark so it restores after relaunch.
         showingBookmarkPersistenceWarning = !persistence.saveBookmark(url: url)
 
+        // Also save a per-book security-scoped bookmark in the Keychain so
+        // reopening this standalone book later from the Library page retains
+        // sandbox access even after switching books or rebooting.
+        if let bookID = bookIdentityURL?.absoluteString {
+            LibraryAccess.saveBookBookmark(for: url, bookID: bookID)
+        }
+        if url.absoluteString != bookIdentityURL?.absoluteString {
+            LibraryAccess.saveBookBookmark(for: url, bookID: url.absoluteString)
+        }
     }
 }

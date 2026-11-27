@@ -8,9 +8,14 @@ import os.log
 enum LibraryAccess {
     private static let logger = Logger(category: "LibraryAccess")
 
-    /// Creates a persistent bookmark for `url` (a folder root). Empty options =
-    /// a full bookmark that survives relaunch, matching `Persistence.saveBookmark`.
+    /// Creates a persistent bookmark for `url` (a folder root or standalone book).
+    /// Empty options = a full bookmark that survives relaunch, matching
+    /// `Persistence.saveBookmark`. Enters the security scope around `bookmarkData`
+    /// because iOS requires active access while creating a bookmark from a
+    /// document-picker URL.
     static func makeBookmark(for url: URL) -> Data? {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
         do {
             #if os(macOS)
                 let options: URL.BookmarkCreationOptions = [.withSecurityScope]
@@ -43,6 +48,55 @@ enum LibraryAccess {
             logger.error("Bookmark resolve failed: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// Persists a per-book security-scoped bookmark in the Keychain so standalone
+    /// books picked directly from the file selector stay reopenable from the
+    /// Library page after switching books or rebooting the device.
+    @discardableResult
+    static func saveBookBookmark(
+        for url: URL,
+        bookID: String,
+        makeBookmark: (URL) -> Data? = { makeBookmark(for: $0) },
+        saveData: (Data, String) -> Bool = { data, account in
+            KeychainStore.set(
+                data, forAccount: account, service: KeychainStore.bookBookmarkService)
+        }
+    ) -> Bool {
+        guard let data = makeBookmark(url) else { return false }
+        return saveData(data, bookBookmarkAccount(for: bookID))
+    }
+
+    /// Resolves a previously stored per-book security-scoped bookmark from the
+    /// Keychain, refreshing it in place when iOS flags the bookmark as stale.
+    static func resolveBookBookmark(
+        for bookID: String,
+        loadData: (String) -> Data? = { account in
+            KeychainStore.data(forAccount: account, service: KeychainStore.bookBookmarkService)
+        },
+        resolveData: (Data) -> (url: URL, isStale: Bool)? = { resolveURL(from: $0) },
+        makeBookmark: (URL) -> Data? = { makeBookmark(for: $0) },
+        saveData: (Data, String) -> Bool = { data, account in
+            KeychainStore.set(
+                data, forAccount: account, service: KeychainStore.bookBookmarkService)
+        }
+    ) -> URL? {
+        let account = bookBookmarkAccount(for: bookID)
+        guard let data = loadData(account),
+            let resolved = resolveData(data)
+        else { return nil }
+        if resolved.isStale, let refreshed = makeBookmark(resolved.url) {
+            _ = saveData(refreshed, account)
+        }
+        return resolved.url
+    }
+
+    /// Stable Keychain account key for a book's security-scoped bookmark.
+    static func bookBookmarkAccount(for bookID: String) -> String {
+        if let url = URL(string: bookID), url.isFileURL {
+            return url.standardizedFileURL.absoluteString
+        }
+        return bookID
     }
 
     /// Best-effort normalized grouping key for "browse by author": trims, flips a
