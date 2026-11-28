@@ -123,7 +123,29 @@ import Testing
 
         let route = try LibraryBookOpenDispatcher().route(
             for: LibraryOpenTarget(url: tmp, scopedRoot: nil))
-        #expect(route == .audioFolder(tmp))
+        #expect(route == .audioFile(tmp))
+    }
+
+    /// A flat-root M4B must reach the single-file consumer, never the folder
+    /// loader, which lists directory contents and silently fails on a file.
+    @Test func dispatcherOpensStandaloneM4BThroughAudioFileConsumer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flat-root-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let book = root.appendingPathComponent("Dune.m4b")
+        try Data("audio".utf8).write(to: book)
+        var events: [String] = []
+
+        try LibraryBookOpenDispatcher().open(
+            LibraryOpenTarget(url: book, scopedRoot: root),
+            retainSecurityScope: { events.append("retain:\($0.lastPathComponent)") },
+            releaseSecurityScope: { events.append("release") },
+            openAudioFolder: { events.append("folder:\($0.lastPathComponent)") },
+            openAudioFile: { events.append("file:\($0.lastPathComponent)") },
+            openAudiolessDocument: { _, _ in events.append("document") })
+
+        #expect(events == ["retain:\(root.lastPathComponent)", "file:Dune.m4b"])
     }
 
     @Test func libraryViewModelTracksPermissionRecoveryOnPermissionDenied() throws {

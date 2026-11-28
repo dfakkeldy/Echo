@@ -67,6 +67,9 @@ struct LibraryOpenTarget {
 /// keep the readable payload separate from the durable audiobook identity.
 enum LibraryBookOpenRoute: Equatable {
     case audioFolder(URL)
+    /// A single regular audio file (e.g. a flat-root `OpenAudible/Dune.m4b`).
+    /// Its URL is both the playable track and the book identity.
+    case audioFile(URL)
     case audiolessDocument(documentURL: URL, audiobookIdentityURL: URL)
 }
 
@@ -158,7 +161,7 @@ struct LibraryBookOpenDispatcher {
             guard files.isReadable(url) else { throw LibraryBookOpenError.unreadable(url) }
             let ext = url.pathExtension.lowercased()
             if audioExtensions.contains(ext) && !PlaylistManager.isAuxiliaryNarrationArtifact(url) {
-                return .audioFolder(url)
+                return .audioFile(url)
             }
             guard Self.documentExtensions.contains(ext) else {
                 throw LibraryBookOpenError.unsupported(url)
@@ -216,6 +219,7 @@ struct LibraryBookOpenDispatcher {
         retainSecurityScope: (URL) -> Void,
         releaseSecurityScope: () -> Void,
         openAudioFolder: (URL) -> Void,
+        openAudioFile: (URL) -> Void,
         openAudiolessDocument: (URL, URL) -> Void
     ) throws {
         if let root = target.scopedRoot {
@@ -228,6 +232,8 @@ struct LibraryBookOpenDispatcher {
             switch try route(for: target) {
             case .audioFolder(let folder):
                 openAudioFolder(folder)
+            case .audioFile(let file):
+                openAudioFile(file)
             case .audiolessDocument(let document, let identity):
                 openAudiolessDocument(document, identity)
             }

@@ -562,6 +562,22 @@ final class MacPlayerModel {
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
     }
 
+    /// Opens a Library book that is a single audio file (a flat-root M4B).
+    /// The file URL is the book identity, matching the `absoluteString` id
+    /// the Library scanner stores, so resume state and bookmarks line up.
+    func loadAudioFile(url fileURL: URL, preserveLibraryRoot: Bool = false) {
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
+        let audioFiles = [fileURL]
+        folderURL = fileURL
+        tracks = audioFiles
+        persistFolderAudiobookToSQL(folderURL: fileURL, audioFiles: audioFiles)
+        currentTrackIndex = 0
+        pendingCompanionDocumentImport = nil
+        open(url: fileURL, preserveLibraryRoot: preserveLibraryRoot)
+    }
+
     /// Recreates the checkpoint coordinator when the database arrives. Remote
     /// command reinterpretation does not apply on macOS, so remote grading stays
     /// off even if the shared settings store has an iOS value.
@@ -852,6 +868,9 @@ final class MacPlayerModel {
             },
             openAudioFolder: { [unowned self] folder in
                 loadFolder(url: folder, preserveLibraryRoot: true)
+            },
+            openAudioFile: { [unowned self] file in
+                loadAudioFile(url: file, preserveLibraryRoot: true)
             },
             openAudiolessDocument: { [unowned self] document, identity in
                 loadAudiolessDocument(
