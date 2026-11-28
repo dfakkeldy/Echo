@@ -525,6 +525,15 @@ final class MacPlayerModel {
     }
 
     func loadFolder(url folderURL: URL, preserveLibraryRoot: Bool = false) {
+        // A stored book id can name a single audio file (a flat-root M4B), for
+        // example when a study checkpoint reopens its book. Listing a file's
+        // "contents" fails silently, so hand it to the single-file loader.
+        let isDirectory =
+            (try? folderURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? true
+        if !isDirectory, Self.audioExtensions.contains(folderURL.pathExtension.lowercased()) {
+            loadAudioFile(url: folderURL, preserveLibraryRoot: preserveLibraryRoot)
+            return
+        }
         if !preserveLibraryRoot {
             stopLibraryRootScope()
         }
