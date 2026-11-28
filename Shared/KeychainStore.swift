@@ -34,6 +34,11 @@ enum KeychainStore {
         case aiProviderCustom = "aiProvider.custom"
     }
 
+    /// Dedicated Keychain service for per-book security-scoped bookmarks so
+    /// standalone books picked via the file selector remain reopenable from the
+    /// Library page across book switches and device reboots.
+    static let bookBookmarkService = "com.echo.audiobooks.book-bookmarks"
+
     #if DEBUG
         private struct FallbackKey: Hashable {
             let service: String
@@ -48,9 +53,14 @@ enum KeychainStore {
 
     @discardableResult
     static func set(_ data: Data, for key: Key, service: String = "com.echo.audiobooks") -> Bool {
+        set(data, forAccount: key.rawValue, service: service)
+    }
+
+    @discardableResult
+    static func set(_ data: Data, forAccount account: String, service: String) -> Bool {
         let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
             kSecAttrService as String: service,
         ]
         let attributes: [String: Any] = [
@@ -67,7 +77,7 @@ enum KeychainStore {
         if updateStatus == errSecSuccess { return true }
         guard updateStatus == errSecItemNotFound else {
             #if DEBUG
-                storeVolatileFallback(data, for: key, service: service)
+                storeVolatileFallback(data, forAccount: account, service: service)
             #endif
             return false
         }
@@ -75,16 +85,21 @@ enum KeychainStore {
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         if addStatus == errSecSuccess { return true }
         #if DEBUG
-            storeVolatileFallback(data, for: key, service: service)
+            storeVolatileFallback(data, forAccount: account, service: service)
         #endif
         return false
     }
 
     /// Reads `Data` from the Keychain for the given key.
     static func data(for key: Key, service: String = "com.echo.audiobooks") -> Data? {
+        data(forAccount: key.rawValue, service: service)
+    }
+
+    /// Reads `Data` from the Keychain for a dynamic account identifier.
+    static func data(forAccount account: String, service: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
             kSecAttrService as String: service,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -93,7 +108,7 @@ enum KeychainStore {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess else {
             #if DEBUG
-                return volatileFallbackData(for: key, service: service)
+                return volatileFallbackData(forAccount: account, service: service)
             #else
                 return nil
             #endif
@@ -103,34 +118,43 @@ enum KeychainStore {
 
     /// Removes the entry for the given key.
     static func remove(_ key: Key, service: String = "com.echo.audiobooks") {
+        remove(account: key.rawValue, service: service)
+    }
+
+    /// Removes the entry for a dynamic account identifier.
+    static func remove(account: String, service: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
             kSecAttrService as String: service,
         ]
         SecItemDelete(query as CFDictionary)
         #if DEBUG
-            removeVolatileFallback(for: key, service: service)
+            removeVolatileFallback(forAccount: account, service: service)
         #endif
     }
 
     #if DEBUG
-        private static func storeVolatileFallback(_ data: Data, for key: Key, service: String) {
-            let fallbackKey = FallbackKey(service: service, account: key.rawValue)
+        private static func storeVolatileFallback(
+            _ data: Data, forAccount account: String, service: String
+        ) {
+            let fallbackKey = FallbackKey(service: service, account: account)
             volatileFallback.withLock { storage in
                 storage[fallbackKey] = data
             }
         }
 
-        private static func volatileFallbackData(for key: Key, service: String) -> Data? {
-            let fallbackKey = FallbackKey(service: service, account: key.rawValue)
+        private static func volatileFallbackData(
+            forAccount account: String, service: String
+        ) -> Data? {
+            let fallbackKey = FallbackKey(service: service, account: account)
             return volatileFallback.withLock { storage in
                 storage[fallbackKey]
             }
         }
 
-        private static func removeVolatileFallback(for key: Key, service: String) {
-            let fallbackKey = FallbackKey(service: service, account: key.rawValue)
+        private static func removeVolatileFallback(forAccount account: String, service: String) {
+            let fallbackKey = FallbackKey(service: service, account: account)
             volatileFallback.withLock { storage in
                 _ = storage.removeValue(forKey: fallbackKey)
             }

@@ -14,6 +14,9 @@ final class LibraryViewModel {
     var isLoading = false
     var errorMessage: String?
     var pendingRecoveryBook: AudiobookRecord?
+    /// Set when opening a Library book fails due to missing iOS sandbox
+    /// permission, so the alert can offer a direct "Grant Access" picker button.
+    var permissionRecoveryBook: AudiobookRecord?
 
     @ObservationIgnored let database: DatabaseService
     @ObservationIgnored private let service: LibraryService
@@ -124,11 +127,18 @@ final class LibraryViewModel {
             let target = try service.urlForOpening(book)
             try openBook(target)
             errorMessage = nil
+            permissionRecoveryBook = nil
         } catch {
             if let openingError = error as? LibraryBookOpenError {
                 errorMessage = openingError.localizedDescription
+                if case .permissionDenied = openingError {
+                    permissionRecoveryBook = book
+                } else {
+                    permissionRecoveryBook = nil
+                }
             } else {
                 errorMessage = "This book can't be opened. Its folder may have moved."
+                permissionRecoveryBook = nil
             }
             logger.error("Open failed for \(book.id): \(error.localizedDescription)")
         }

@@ -298,6 +298,16 @@ final class DatabaseService {
                 table.add(column: "word_boxes", .text)
             }
         }
+        // Relative path under `source_root_id` so root-backed books resolve
+        // cleanly even if iOS/FileProvider changes the root mount prefix across reboots.
+        migrator.registerMigration("v45_audiobook_source_relative_path") { db in
+            let columns = try db.columns(in: "audiobook").map(\.name)
+            if !columns.contains("source_relative_path") {
+                try db.alter(table: "audiobook") { table in
+                    table.add(column: "source_relative_path", .text)
+                }
+            }
+        }
         return migrator
     }
 }

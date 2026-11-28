@@ -525,6 +525,15 @@ final class MacPlayerModel {
     }
 
     func loadFolder(url folderURL: URL, preserveLibraryRoot: Bool = false) {
+        // A stored book id can name a single audio file (a flat-root M4B), for
+        // example when a study checkpoint reopens its book. Listing a file's
+        // "contents" fails silently, so hand it to the single-file loader.
+        let isDirectory =
+            (try? folderURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? true
+        if !isDirectory, Self.audioExtensions.contains(folderURL.pathExtension.lowercased()) {
+            loadAudioFile(url: folderURL, preserveLibraryRoot: preserveLibraryRoot)
+            return
+        }
         if !preserveLibraryRoot {
             stopLibraryRootScope()
         }
@@ -560,6 +569,22 @@ final class MacPlayerModel {
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
         prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
+    }
+
+    /// Opens a Library book that is a single audio file (a flat-root M4B).
+    /// The file URL is the book identity, matching the `absoluteString` id
+    /// the Library scanner stores, so resume state and bookmarks line up.
+    func loadAudioFile(url fileURL: URL, preserveLibraryRoot: Bool = false) {
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
+        let audioFiles = [fileURL]
+        folderURL = fileURL
+        tracks = audioFiles
+        persistFolderAudiobookToSQL(folderURL: fileURL, audioFiles: audioFiles)
+        currentTrackIndex = 0
+        pendingCompanionDocumentImport = nil
+        open(url: fileURL, preserveLibraryRoot: preserveLibraryRoot)
     }
 
     /// Recreates the checkpoint coordinator when the database arrives. Remote
@@ -852,6 +877,9 @@ final class MacPlayerModel {
             },
             openAudioFolder: { [unowned self] folder in
                 loadFolder(url: folder, preserveLibraryRoot: true)
+            },
+            openAudioFile: { [unowned self] file in
+                loadAudioFile(url: file, preserveLibraryRoot: true)
             },
             openAudiolessDocument: { [unowned self] document, identity in
                 loadAudiolessDocument(

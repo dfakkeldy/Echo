@@ -193,7 +193,7 @@ nonisolated enum ContainerPathRepair {
         "title", "author", "narrator", "duration", "file_count", "added_at",
         "source_type", "server_id", "remote_item_id", "topics_json",
         "cover_art_path", "text_origin", "author_sort", "source_root_id",
-        "index_state",
+        "source_relative_path", "index_state",
     ]
 
     /// Scans for stranded rows and re-keys them, one transaction per book so

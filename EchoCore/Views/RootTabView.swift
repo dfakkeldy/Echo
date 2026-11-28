@@ -296,7 +296,7 @@ struct RootTabView: View {
                             if let db = model.databaseService {
                                 LibraryView(
                                     db: db,
-                                    openBook: { model.openLibraryBook($0) },
+                                    openBook: { try model.openLibraryBookOrThrow($0) },
                                     onAddFolder: { showingFolderPicker = true },
                                     onConnectServer: { showingSettings = true }
                                 )

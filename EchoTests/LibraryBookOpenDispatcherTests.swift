@@ -114,6 +114,7 @@ struct LibraryBookOpenDispatcherTests {
                 retainSecurityScope: { events.append("retain:\($0.path)") },
                 releaseSecurityScope: { events.append("release") },
                 openAudioFolder: { events.append("audio:\($0.path)") },
+                openAudioFile: { events.append("file:\($0.path)") },
                 openAudiolessDocument: { _, _ in events.append("document") })
 
             #expect(events == ["retain:\(root.path)", "audio:\(folder.path)"])
@@ -132,6 +133,7 @@ struct LibraryBookOpenDispatcherTests {
                     retainSecurityScope: { _ in events.append("retain") },
                     releaseSecurityScope: { events.append("release") },
                     openAudioFolder: { _ in events.append("audio") },
+                    openAudioFile: { _ in events.append("file") },
                     openAudiolessDocument: { _, _ in events.append("document") })
             }
 

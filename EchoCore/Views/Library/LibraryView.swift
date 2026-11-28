@@ -13,11 +13,11 @@
         let onConnectServer: () -> Void
         private let anthologyService: AnthologyService
         private let anthologyBuildService: AnthologyBuildService
-        private let openBook: (LibraryOpenTarget) -> Void
+        private let openBook: (LibraryOpenTarget) throws -> Void
 
         init(
             db: DatabaseService,
-            openBook: @escaping (LibraryOpenTarget) -> Void,
+            openBook: @escaping (LibraryOpenTarget) throws -> Void,
             onAddFolder: @escaping () -> Void,
             onConnectServer: @escaping () -> Void
         ) {
@@ -130,7 +130,22 @@
                 }
             }
             .alert("Couldn't open book", isPresented: errorPresented) {
-                Button("OK") { vm.errorMessage = nil }
+                if vm.permissionRecoveryBook != nil {
+                    Button("Grant Access") {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                        onAddFolder()
+                    }
+                    Button("Cancel", role: .cancel) {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                    }
+                } else {
+                    Button("OK") {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                    }
+                }
             } message: {
                 Text(vm.errorMessage ?? "")
             }
@@ -166,7 +181,10 @@
             Binding(
                 get: { vm.errorMessage != nil },
                 set: { isPresented in
-                    if !isPresented { vm.errorMessage = nil }
+                    if !isPresented {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                    }
                 }
             )
         }
@@ -225,7 +243,7 @@
                 viewModel: anthologyListViewModel,
                 service: anthologyService,
                 buildService: anthologyBuildService,
-                openBook: openBook,
+                openBook: { target in try? openBook(target) },
                 cleanupContext: articleInboxViewModel.cleanupContext,
                 onSuccessfulBuild: {
                     await articleInboxViewModel.reload()
