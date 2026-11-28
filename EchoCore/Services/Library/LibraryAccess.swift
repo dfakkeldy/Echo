@@ -99,6 +99,62 @@ enum LibraryAccess {
         return bookID
     }
 
+    /// Computes the relative path from `root` to `child`, or `nil` if `child`
+    /// is not equal to or inside `root`. Returns `""` when `child == root`.
+    /// Uses resolved standardized path components so `/var` vs `/private/var`
+    /// symlinks never break matching and sibling prefixes (`/Books2`) never
+    /// falsely match `/Books`.
+    nonisolated static func relativePath(of child: URL, from root: URL) -> String? {
+        let childComponents = child.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let rootComponents = root.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        guard childComponents.count >= rootComponents.count else { return nil }
+        guard Array(childComponents.prefix(rootComponents.count)) == rootComponents else {
+            return nil
+        }
+        let remainder = childComponents.dropFirst(rootComponents.count)
+        return remainder.joined(separator: "/")
+    }
+
+    /// Reconstructs a child URL beneath `resolvedRoot` from a stored relative
+    /// path, falling back to `storedURL` only when `relativePath` is nil.
+    nonisolated static func resolveChildURL(
+        resolvedRoot: URL,
+        relativePath: String?,
+        fallbackURL: URL? = nil,
+        rootDisplayName: String? = nil
+    ) -> URL? {
+        if let relativePath {
+            if relativePath.isEmpty {
+                return resolvedRoot
+            }
+            let components = relativePath.split(separator: "/").map(String.init)
+            return components.reduce(resolvedRoot) { acc, part in
+                acc.appendingPathComponent(part)
+            }
+        }
+        guard let fallbackURL else { return nil }
+        // If the stored URL still sits under the resolved root, preserve it.
+        if let rel = Self.relativePath(of: fallbackURL, from: resolvedRoot) {
+            return rel.isEmpty
+                ? resolvedRoot
+                : rel.split(separator: "/").map(String.init).reduce(resolvedRoot) {
+                    $0.appendingPathComponent($1)
+                }
+        }
+        // Prefix drifted across a reboot/FileProvider mount change on a legacy
+        // row without `source_relative_path`: rebase the tail after the root's
+        // folder name onto the live `resolvedRoot`.
+        let rootName = rootDisplayName ?? resolvedRoot.lastPathComponent
+        if !rootName.isEmpty {
+            let parts = fallbackURL.standardizedFileURL.pathComponents
+            if let anchorIdx = parts.lastIndex(of: rootName), anchorIdx + 1 < parts.count {
+                let tail = parts[(anchorIdx + 1)...]
+                return tail.reduce(resolvedRoot) { $0.appendingPathComponent($1) }
+            }
+        }
+        return fallbackURL
+    }
+
     /// Best-effort normalized grouping key for "browse by author": trims, flips a
     /// single "Last, First" into "First Last", lowercases. Display uses the raw
     /// author; this only groups. Returns nil for nil/empty input.

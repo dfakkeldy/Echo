@@ -130,7 +130,22 @@
                 }
             }
             .alert("Couldn't open book", isPresented: errorPresented) {
-                Button("OK") { vm.errorMessage = nil }
+                if vm.permissionRecoveryBook != nil {
+                    Button("Grant Access") {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                        onAddFolder()
+                    }
+                    Button("Cancel", role: .cancel) {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                    }
+                } else {
+                    Button("OK") {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                    }
+                }
             } message: {
                 Text(vm.errorMessage ?? "")
             }
@@ -166,7 +181,10 @@
             Binding(
                 get: { vm.errorMessage != nil },
                 set: { isPresented in
-                    if !isPresented { vm.errorMessage = nil }
+                    if !isPresented {
+                        vm.errorMessage = nil
+                        vm.permissionRecoveryBook = nil
+                    }
                 }
             )
         }

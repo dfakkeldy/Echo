@@ -195,6 +195,8 @@ struct NowPlayingTab: View {
                 .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                 .padding(.top, 16)
 
+            playbackErrorSection
+
             narrationNudgeSection
 
             if !isAwaitingNarration {
@@ -223,6 +225,54 @@ struct NowPlayingTab: View {
                 .tint(model.resolvedThemeTint)
                 .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                 .padding(.vertical, 16)
+        }
+    }
+
+    @ViewBuilder
+    private var playbackErrorSection: some View {
+        if let notice = model.playbackError {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
+                    .accessibilityHidden(true)
+
+                Text(notice.message)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if notice.allowsReopenPicker {
+                    Button("Choose File", action: openFolder)
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                } else {
+                    Button("Retry") {
+                        model.play()
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+
+                Button {
+                    model.dismissPlaybackError()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Dismiss playback error"))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(model.coverTheme.chip, in: .rect(cornerRadius: 12))
+            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+            .padding(.top, 10)
+            .accessibilityIdentifier("nowPlaying.playbackErrorBanner")
         }
     }
 

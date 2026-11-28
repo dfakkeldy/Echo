@@ -84,6 +84,7 @@ nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistable
     var lastSeenAt: String? = nil
     var authorSort: String? = nil
     var sourceRootID: String? = nil
+    var sourceRelativePath: String? = nil
     var textOrigin: String? = nil
     var editionGroupID: String? = nil
     var editionGroupOptOut: Bool = false
@@ -105,6 +106,7 @@ nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistable
         case lastSeenAt = "last_seen_at"
         case authorSort = "author_sort"
         case sourceRootID = "source_root_id"
+        case sourceRelativePath = "source_relative_path"
         case textOrigin = "text_origin"
         case editionGroupID = "edition_group_id"
         case editionGroupOptOut = "edition_group_optout"
