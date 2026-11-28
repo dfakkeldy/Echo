@@ -213,6 +213,7 @@ final class PlaybackController {
         coordinator_endBackgroundTask?()
 
         guard !state.tracks.isEmpty else { return }
+        state.playbackError = nil
 
         assert(
             coordinator_configureAudioSession != nil,
@@ -226,7 +227,12 @@ final class PlaybackController {
                 "coordinator_loadTrack must be wired — track loading required for playback")
             coordinator_loadTrack?(state.currentIndex, false)
         }
-        guard audioEngine.isItemLoaded else { return }
+        guard audioEngine.isItemLoaded else {
+            if state.playbackError == nil {
+                state.playbackError = .fileUnavailable
+            }
+            return
+        }
         coordinator_startSecurityScope?()
 
         applySpeedToCurrentItem()
@@ -236,7 +242,13 @@ final class PlaybackController {
         // tick fires before MPNowPlayingInfoCenter has playbackRate set, the
         // Lock Screen may show the wrong transport button.
         audioEngine.playImmediately(atRate: speed)
-        guard audioEngine.isPlaying else { return }
+        guard audioEngine.isPlaying else {
+            if state.playbackError == nil {
+                state.playbackError = .audioEngineFailed
+            }
+            return
+        }
+        state.playbackError = nil
         state.isPlaying = true
         coordinator_persistAndSync?(false)
         coordinator_playStateChanged?(.playing)
@@ -390,6 +402,7 @@ final class PlaybackController {
     func stop() {
         clearNarrationQueueWait()
         state.isPlaying = false
+        state.playbackError = nil
         state.currentTitle = String(localized: "No track selected")
         state.progressFraction = 0
         state.progressText = "--:--"
@@ -414,11 +427,13 @@ final class PlaybackController {
     func reportTrackLoading() {
         clearNarrationQueueWait()
         state.isPlaying = false
+        state.playbackError = nil
         coordinator_playStateChanged?(.loading)
     }
 
     func reportTrackLoadFailure(_ failure: AudioItemLoadFailure) {
         state.isPlaying = false
+        state.playbackError = PlaybackErrorNotice.fromLoadFailure(failure.privateDetail)
         coordinator_playStateChanged?(.failed(privateDetail: failure.privateDetail))
     }
 

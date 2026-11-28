@@ -274,6 +274,8 @@ final class PlayerModel {
     // MARK: - Playback state (pass-through to PlaybackState)
 
     var isPlaying: Bool { state.isPlaying }
+    var playbackError: PlaybackErrorNotice? { state.playbackError }
+    func dismissPlaybackError() { state.playbackError = nil }
     var currentTitle: String { state.currentTitle }
     var currentSubtitle: String {
         state.currentSubtitle.applyingChapterTruncation(

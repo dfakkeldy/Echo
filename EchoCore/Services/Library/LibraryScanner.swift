@@ -61,13 +61,85 @@ enum LibraryScanner {
             audioByFolder[folder, default: []].append(url)
         }
 
-        let books = audioByFolder.keys.sorted { $0.path < $1.path }.map { folder in
-            DiscoveredBook(
-                folderURL: folder,
-                audioFiles: audioByFolder[folder]!.sorted { $0.path < $1.path },
-                companionEPUB: companionEPUB(in: folder))
+        let standardizedRoot = root.standardizedFileURL
+        var books: [DiscoveredBook] = []
+        for folder in audioByFolder.keys.sorted(by: { $0.path < $1.path }) {
+            let sortedFiles = audioByFolder[folder]!.sorted { $0.path < $1.path }
+            let allM4B = !sortedFiles.isEmpty
+                && sortedFiles.allSatisfy { $0.pathExtension.lowercased() == "m4b" }
+            if allM4B,
+                shouldSplitFlatM4Bs(
+                    in: folder,
+                    m4bFiles: sortedFiles,
+                    root: standardizedRoot,
+                    totalFoldersWithAudio: audioByFolder.count)
+            {
+                for m4b in sortedFiles {
+                    books.append(
+                        DiscoveredBook(
+                            folderURL: m4b.standardizedFileURL,
+                            audioFiles: [m4b],
+                            companionEPUB: companionEPUB(for: m4b, in: folder)))
+                }
+            } else {
+                books.append(
+                    DiscoveredBook(
+                        folderURL: folder,
+                        audioFiles: sortedFiles,
+                        companionEPUB: companionEPUB(in: folder)))
+            }
         }
         return Discovery(books: books, isComplete: complete)
+    }
+
+    /// Distinguishes a flat shelf of standalone `.m4b` books (e.g. `OpenAudible/`
+    /// with `The War of Art.m4b`, `Dune.m4b`, …) from a single multi-part M4B
+    /// folder (`Dune Part 1.m4b`, `Dune Part 2.m4b`) or a dedicated per-book
+    /// subfolder (`BookA/a.m4b`).
+    nonisolated static func shouldSplitFlatM4Bs(
+        in folder: URL,
+        m4bFiles: [URL],
+        root: URL,
+        totalFoldersWithAudio: Int
+    ) -> Bool {
+        if m4bFiles.count == 1 {
+            // A lone `.m4b` sitting directly inside a library root alongside
+            // book subfolders is a standalone book, not the whole root folder.
+            return folder.standardizedFileURL == root.standardizedFileURL
+                && totalFoldersWithAudio > 1
+        }
+        guard m4bFiles.count >= 2 else { return false }
+        return !isMultiPartM4BSet(m4bFiles)
+    }
+
+    /// Returns `true` when multiple `.m4b` files in one folder look like parts
+    /// or discs of a single multi-volume audiobook rather than separate titles.
+    nonisolated static func isMultiPartM4BSet(_ files: [URL]) -> Bool {
+        guard files.count >= 2 else { return false }
+        let stems = files.map {
+            $0.deletingPathExtension().lastPathComponent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // Purely numeric or 1–3 digit track-prefixed names (e.g. "01", "01 - Ch 1",
+        // "02 - Ch 2"), excluding 4-digit years like "1984".
+        let leadingNumberPattern = /^\d{1,3}(?:$|[\s._-])/
+        if stems.allSatisfy({ $0.firstMatch(of: leadingNumberPattern) != nil }) {
+            return true
+        }
+        // Explicit Part / Pt / Disc / Disk / CD / Vol / Volume markers sharing
+        // the same non-empty base title stem (e.g. "Dune Part 1", "Dune Part 2").
+        let partMarkerPattern =
+            /(?i)(?:^|[\s._(\[\-])(?:part|pt|disc|disk|cd|vol|volume)\s*\.?\s*\d+[\)\]\s._\-]*$/
+        var baseStems: Set<String> = []
+        for stem in stems {
+            guard let match = stem.firstMatch(of: partMarkerPattern) else { return false }
+            let prefix = String(stem[..<match.range.lowerBound])
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+                .lowercased()
+            guard !prefix.isEmpty else { return false }
+            baseStems.insert(prefix)
+        }
+        return baseStems.count == 1
     }
 
     private nonisolated static func companionEPUB(in folder: URL) -> URL? {
@@ -75,6 +147,19 @@ enum LibraryScanner {
             (try? FileManager.default.contentsOfDirectory(
                 at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         return siblings.first { $0.pathExtension.lowercased() == "epub" }
+    }
+
+    /// Matches a companion EPUB sitting beside a flat `.m4b` file by stem name
+    /// so unrelated EPUBs in a shared `OpenAudible/` folder aren't cross-linked.
+    private nonisolated static func companionEPUB(for audioFile: URL, in folder: URL) -> URL? {
+        let targetStem = audioFile.deletingPathExtension().lastPathComponent.lowercased()
+        let siblings =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        return siblings.first {
+            $0.pathExtension.lowercased() == "epub"
+                && $0.deletingPathExtension().lastPathComponent.lowercased() == targetStem
+        }
     }
 }
 
@@ -88,7 +173,10 @@ extension LibraryScanner {
     }
 
     nonisolated static func fallbackTitle(for book: DiscoveredBook) -> String {
-        book.folderURL.lastPathComponent
+        if audioExtensions.contains(book.folderURL.pathExtension.lowercased()) {
+            return book.folderURL.deletingPathExtension().lastPathComponent
+        }
+        return book.folderURL.lastPathComponent
     }
 
     /// Cheap per-book metadata read for the shelf — title/author/duration/cover
@@ -219,7 +307,11 @@ extension LibraryScanner {
         }
 
         if !images.isEmpty {
-            let preferred = images.first { fileURL in
+            let audioStem = url.deletingPathExtension().lastPathComponent.lowercased()
+            let matchingStem = images.first { fileURL in
+                fileURL.deletingPathExtension().lastPathComponent.lowercased() == audioStem
+            }
+            let preferred = matchingStem ?? images.first { fileURL in
                 fileURL.deletingPathExtension().lastPathComponent.lowercased() == "cover"
             }
             let selected =

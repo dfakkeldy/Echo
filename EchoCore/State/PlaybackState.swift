@@ -91,6 +91,58 @@ struct PlaybackBookTimeIndex: Equatable, Sendable {
     }
 }
 
+nonisolated enum PlaybackFailureKind: Equatable, Sendable {
+    case permissionDenied
+    case fileUnavailable
+    case audioEngineFailed
+}
+
+/// User-facing notice shown in Now Playing when loading or starting playback
+/// fails, replacing silent Play-button bounce-backs with an actionable recovery.
+nonisolated struct PlaybackErrorNotice: Equatable, Sendable {
+    let kind: PlaybackFailureKind
+    let message: String
+    let allowsReopenPicker: Bool
+
+    static let permissionDenied = PlaybackErrorNotice(
+        kind: .permissionDenied,
+        message: String(
+            localized:
+                "Echo doesn’t have permission to read this file. Choose it or its folder again to restore access."
+        ),
+        allowsReopenPicker: true)
+
+    static let fileUnavailable = PlaybackErrorNotice(
+        kind: .fileUnavailable,
+        message: String(
+            localized:
+                "Echo couldn’t open this audio file. It may still be downloading from iCloud or its folder may have moved."
+        ),
+        allowsReopenPicker: true)
+
+    static let audioEngineFailed = PlaybackErrorNotice(
+        kind: .audioEngineFailed,
+        message: String(
+            localized:
+                "Playback couldn’t start right now. Another app or call may be holding audio."
+        ),
+        allowsReopenPicker: false)
+
+    static func fromLoadFailure(_ privateDetail: String) -> PlaybackErrorNotice {
+        let lower = privateDetail.lowercased()
+        if lower.contains("permission")
+            || lower.contains("not permitted")
+            || lower.contains("code=257")
+            || lower.contains("code=1 ")
+            || lower.contains("eperm")
+            || lower.contains("eacces")
+        {
+            return .permissionDenied
+        }
+        return .fileUnavailable
+    }
+}
+
 /// Shared mutable playback state, owned by PlaybackController and observed by
 /// both PlayerModel (via pass-through computed properties) and SwiftUI views.
 /// Eliminates ~150 lines of stored properties and pass-throughs from PlayerModel.
@@ -218,6 +270,7 @@ final class PlaybackState {
     // MARK: - Playback
 
     var isPlaying: Bool = false
+    var playbackError: PlaybackErrorNotice? = nil
     var currentTitle: String = String(localized: "No track selected")
     var currentSubtitle: String = ""
 

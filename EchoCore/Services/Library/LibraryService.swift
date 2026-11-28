@@ -67,6 +67,9 @@ struct LibraryOpenTarget {
 /// keep the readable payload separate from the durable audiobook identity.
 enum LibraryBookOpenRoute: Equatable {
     case audioFolder(URL)
+    /// A single regular audio file (e.g. a flat-root `OpenAudible/Dune.m4b`).
+    /// Its URL is both the playable track and the book identity.
+    case audioFile(URL)
     case audiolessDocument(documentURL: URL, audiobookIdentityURL: URL)
 }
 
@@ -156,7 +159,11 @@ struct LibraryBookOpenDispatcher {
             throw LibraryBookOpenError.unsupported(url)
         case .regularFile:
             guard files.isReadable(url) else { throw LibraryBookOpenError.unreadable(url) }
-            guard Self.documentExtensions.contains(url.pathExtension.lowercased()) else {
+            let ext = url.pathExtension.lowercased()
+            if audioExtensions.contains(ext) && !PlaylistManager.isAuxiliaryNarrationArtifact(url) {
+                return .audioFile(url)
+            }
+            guard Self.documentExtensions.contains(ext) else {
                 throw LibraryBookOpenError.unsupported(url)
             }
             return .audiolessDocument(documentURL: url, audiobookIdentityURL: url)
@@ -212,6 +219,7 @@ struct LibraryBookOpenDispatcher {
         retainSecurityScope: (URL) -> Void,
         releaseSecurityScope: () -> Void,
         openAudioFolder: (URL) -> Void,
+        openAudioFile: (URL) -> Void,
         openAudiolessDocument: (URL, URL) -> Void
     ) throws {
         if let root = target.scopedRoot {
@@ -224,6 +232,8 @@ struct LibraryBookOpenDispatcher {
             switch try route(for: target) {
             case .audioFolder(let folder):
                 openAudioFolder(folder)
+            case .audioFile(let file):
+                openAudioFile(file)
             case .audiolessDocument(let document, let identity):
                 openAudiolessDocument(document, identity)
             }
@@ -315,17 +325,19 @@ struct LibraryService {
         // Synchronous seam; interactive rescans use the async overload below.
         for book in found {
             let id = book.folderURL.absoluteString
+            let relativePath = LibraryAccess.relativePath(of: book.folderURL, from: rootURL)
             if let existing = try dao.get(id) {
                 var updated = existing
                 updated.isAvailable = true
                 updated.lastSeenAt = timestamp
                 if updated.sourceRootID == nil { updated.sourceRootID = root.id }
+                if let relativePath { updated.sourceRelativePath = relativePath }
                 try dao.save(updated)
                 result.updated += 1
             } else {
                 let record = AudiobookRecord(
                     id: id,
-                    title: book.folderURL.lastPathComponent,
+                    title: LibraryScanner.fallbackTitle(for: book),
                     author: nil,
                     duration: 0,
                     fileCount: book.audioFiles.count,
@@ -334,7 +346,8 @@ struct LibraryService {
                     isAvailable: true,
                     lastSeenAt: timestamp,
                     authorSort: nil,
-                    sourceRootID: root.id)
+                    sourceRootID: root.id,
+                    sourceRelativePath: relativePath)
                 try dao.save(record)
                 result.added += 1
             }
@@ -416,6 +429,7 @@ struct LibraryService {
             var result = RescanResult(added: 0, updated: 0, hidden: 0)
             for (book, meta, coverPath) in pending {
                 let id = book.folderURL.absoluteString
+                let relativePath = LibraryAccess.relativePath(of: book.folderURL, from: rootURL)
                 let existing = try AudiobookRecord.fetchOne(connection, key: id)
                 var record =
                     existing
@@ -433,6 +447,7 @@ struct LibraryService {
                 record.isAvailable = true
                 record.lastSeenAt = timestamp
                 if record.sourceRootID == nil { record.sourceRootID = rootID }
+                if let relativePath { record.sourceRelativePath = relativePath }
                 try record.save(connection)
                 if existing == nil { result.added += 1 } else { result.updated += 1 }
             }
@@ -1145,11 +1160,17 @@ struct LibraryService {
     ) throws -> LibraryOpenTarget {
         if let rootID = book.sourceRootID {
             guard let root = try LibraryRootDAO(db: db.writer).get(rootID),
-                let resolved = LibraryAccess.resolveURL(from: root.bookmark),
-                // book.id is stored as the folder's absoluteString (e.g. "file:///path/").
-                // URL(string:) correctly parses it, including percent-encoded characters,
-                // without the fragile replacingOccurrences approach in the brief.
-                let childURL = URL(string: book.id),
+                let resolved = LibraryAccess.resolveURL(from: root.bookmark)
+            else {
+                throw LibraryError.unresolvableBook(book.id)
+            }
+            let storedURL = URL(string: book.id)
+            guard
+                let childURL = LibraryAccess.resolveChildURL(
+                    resolvedRoot: resolved.url,
+                    relativePath: book.sourceRelativePath,
+                    fallbackURL: storedURL,
+                    rootDisplayName: root.displayName),
                 childURL.isFileURL
             else {
                 throw LibraryError.unresolvableBook(book.id)
@@ -1158,6 +1179,13 @@ struct LibraryService {
                 var updatedRoot = root
                 updatedRoot.bookmark = refreshed
                 try? LibraryRootDAO(db: db.writer).save(updatedRoot)
+            }
+            if book.sourceRelativePath == nil,
+                let derivedRel = LibraryAccess.relativePath(of: childURL, from: resolved.url)
+            {
+                var updatedBook = book
+                updatedBook.sourceRelativePath = derivedRel
+                try? AudiobookDAO(db: db.writer).save(updatedBook)
             }
             return LibraryOpenTarget(url: childURL, scopedRoot: resolved.url)
         }
